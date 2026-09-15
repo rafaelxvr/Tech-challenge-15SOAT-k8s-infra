@@ -34,7 +34,7 @@ variable "github_oidc_provider_arn" {
 
   validation {
     condition = can(regex(
-      "^arn:aws:iam::[0-9]{12}:oidc-provider/token\\.actions\\.githubusercontent\\.com$",
+      "^arn:aws:iam::${var.account_id}:oidc-provider/token\\.actions\\.githubusercontent\\.com$",
       var.github_oidc_provider_arn
     ))
     error_message = "github_oidc_provider_arn must identify token.actions.githubusercontent.com."
@@ -67,7 +67,7 @@ variable "launchers" {
       can(regex("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", launcher.repository)) &&
       contains(["staging", "production"], launcher.environment) &&
       can(regex("^[a-z0-9][a-z0-9/_-]*$", launcher.source_prefix)) &&
-      can(regex("^arn:aws:codebuild:[a-z0-9-]+:[0-9]{12}:project/[A-Za-z0-9_.-]+$", launcher.codebuild_project_arn))
+      can(regex("^arn:aws:codebuild:us-east-1:${var.account_id}:project/[A-Za-z0-9_.-]+$", launcher.codebuild_project_arn))
     ])
     error_message = "Each launcher needs a repository, approved environment, source prefix, and exact CodeBuild project ARN."
   }
@@ -88,7 +88,7 @@ variable "runtime_role_arns" {
   default     = []
 
   validation {
-    condition     = alltrue([for arn in var.runtime_role_arns : can(regex("^arn:aws:iam::[0-9]{12}:role/.+$", arn))])
-    error_message = "runtime_role_arns must contain IAM role ARNs only."
+    condition     = alltrue([for arn in var.runtime_role_arns : can(regex("^arn:aws:iam::${var.account_id}:role/.+$", arn))])
+    error_message = "runtime_role_arns must contain IAM role ARNs in account_id only."
   }
 }

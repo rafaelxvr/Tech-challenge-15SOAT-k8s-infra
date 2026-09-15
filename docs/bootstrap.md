@@ -9,30 +9,22 @@ Run these commands only during the approved cloud window, from a dedicated MFA-p
    .\scripts\check-deployment-inputs.ps1 -InputFile $inputs
    ```
 
-2. Convert only validated values into a local ignored Terraform variables file. There are no access keys or secret values in this file.
+2. Generate a complete local Terraform variables file from the validated inputs. The generated JSON has every variable required by `infra/bootstrap`, including launcher mappings and dedicated state keys; it contains no access keys or secret values.
 
    ```powershell
-   $input = Get-Content -Raw -LiteralPath $inputs | ConvertFrom-Json
-   @{
-     aws_region               = $input.region
-     account_id               = $input.accountId
-     state_bucket_name        = $input.stateBucketName
-     artifact_bucket_name     = $input.artifactBucketName
-     github_oidc_provider_arn = $input.githubOidcProviderArn
-     state_keys = @{ bootstrap = 'bootstrap/terraform.tfstate'; foundation = 'foundation/terraform.tfstate'; staging = 'environments/staging/terraform.tfstate'; production = 'environments/production/terraform.tfstate' }
-     launchers = @{}
-     runtime_role_arns = []
-   } | Out-Null
+   $tfvars = 'C:\secure\phase3-bootstrap.tfvars.json'
+   .\scripts\new-bootstrap-tfvars.ps1 -InputFile $inputs -OutputFile $tfvars
+   Get-Content -Raw -LiteralPath $tfvars | ConvertFrom-Json | Format-List
    ```
 
-   Populate `launchers` from the validated repository/environment records before review. Configure GitHub's `staging` environment to allow `develop` and its `production` environment to allow `main`; PR workflows do not receive `id-token: write` or an AWS role. Each staging record must use `develop`; each production record must use `main`. The trusted subject is exactly `repo:OWNER/REPOSITORY:environment:staging` or `...:production`, and never a pull-request subject.
+   The input file must already contain the reviewed repository/environment records. Configure GitHub's `staging` environment to allow `develop` and its `production` environment to allow `main`; PR workflows do not receive `id-token: write` or an AWS role. Each staging record must use `develop`; each production record must use `main`. The trusted subject is exactly `repo:OWNER/REPOSITORY:environment:staging` or `...:production`, and never a pull-request subject.
 
 3. Review local configuration without creating resources, then run the one-time bootstrap only after the cloud-window and human approval checks pass.
 
    ```powershell
    terraform -chdir=infra/bootstrap init -backend=false
    terraform -chdir=infra/bootstrap validate
-   terraform -chdir=infra/bootstrap plan -out=bootstrap.tfplan -var-file=C:\secure\phase3-bootstrap.tfvars
+   terraform -chdir=infra/bootstrap plan -out=bootstrap.tfplan -var-file=$tfvars
    # Approved cloud-window action only: terraform -chdir=infra/bootstrap apply bootstrap.tfplan
    ```
 

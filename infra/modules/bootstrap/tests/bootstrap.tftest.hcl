@@ -82,3 +82,31 @@ run "rejects_wrong_branch_for_environment" {
 
   expect_failures = [var.launchers]
 }
+
+run "rejects_oidc_provider_from_another_account" {
+  command = plan
+
+  variables {
+    github_oidc_provider_arn = "arn:aws:iam::210987654321:oidc-provider/token.actions.githubusercontent.com"
+  }
+
+  expect_failures = [var.github_oidc_provider_arn]
+}
+
+run "rejects_codebuild_project_outside_approved_account_or_region" {
+  command = plan
+
+  variables {
+    launchers = {
+      invalid = {
+        repository            = "example/oficina-k8s-infra"
+        environment           = "staging"
+        branch                = "develop"
+        source_prefix         = "releases/k8s/staging"
+        codebuild_project_arn = "arn:aws:codebuild:us-west-2:210987654321:project/oficina-k8s-staging"
+      }
+    }
+  }
+
+  expect_failures = [var.launchers]
+}

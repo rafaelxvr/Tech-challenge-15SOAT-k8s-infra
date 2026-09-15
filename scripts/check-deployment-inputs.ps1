@@ -23,6 +23,15 @@ function Require-Property([object]$Object, [string]$Name) {
     return $property.Value
 }
 
+function ConvertTo-ReviewedIdentityArn([string]$Arn) {
+    # STS returns arn:aws:sts::<account>:assumed-role/<role-name>/<session> for a role session.
+    # Normalize that durable role identity before comparing it to the reviewed IAM role ARN.
+    if ($Arn -match '^arn:aws:sts::(?<account>[0-9]{12}):assumed-role/(?<role>.+)/[^/]+$') {
+        return "arn:aws:iam::$($Matches.account):role/$($Matches.role)"
+    }
+    return $Arn
+}
+
 if (-not (Test-Path -LiteralPath $InputFile -PathType Leaf)) {
     Fail "input file does not exist."
 }
@@ -79,7 +88,9 @@ if ([string]::IsNullOrWhiteSpace($CallerArnForTest)) {
     }
 }
 
-if ($CallerArnForTest -match ':root$') { Fail 'the current AWS caller is root. Configure and use a dedicated MFA human identity.' }
-if ($CallerArnForTest -notmatch "^arn:aws:iam::${accountId}:(user|role)/.+$") { Fail 'the current AWS caller does not belong to accountId or is not an IAM user/role.' }
+$reviewedCallerArn = ConvertTo-ReviewedIdentityArn $CallerArnForTest
+if ($reviewedCallerArn -match ':root$') { Fail 'the current AWS caller is root. Configure and use a dedicated MFA human identity.' }
+if ($reviewedCallerArn -notmatch "^arn:aws:iam::${accountId}:(user|role)/.+$") { Fail 'the current AWS caller does not belong to accountId or is not an IAM user/role.' }
+if ($reviewedCallerArn -ne $operatorArn) { Fail 'the current AWS caller does not match reviewed operatorArn.' }
 
 Write-Output 'Deployment inputs are valid; current caller is a non-root identity.'
