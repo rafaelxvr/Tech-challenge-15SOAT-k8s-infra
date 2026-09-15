@@ -1,0 +1,84 @@
+mock_provider "aws" {}
+
+variables {
+  account_id               = "123456789012"
+  state_bucket_name        = "oficina-phase3-state-example"
+  artifact_bucket_name     = "oficina-phase3-artifacts-example"
+  github_oidc_provider_arn = "arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com"
+  state_keys = {
+    bootstrap = "bootstrap/terraform.tfstate"
+    staging   = "environments/staging/terraform.tfstate"
+  }
+  launchers = {
+    k8s_staging = {
+      repository            = "example/oficina-k8s-infra"
+      environment           = "staging"
+      branch                = "develop"
+      source_prefix         = "releases/k8s/staging"
+      codebuild_project_arn = "arn:aws:codebuild:us-east-1:123456789012:project/oficina-k8s-staging"
+    }
+    k8s_production = {
+      repository            = "example/oficina-k8s-infra"
+      environment           = "production"
+      branch                = "main"
+      source_prefix         = "releases/k8s/production"
+      codebuild_project_arn = "arn:aws:codebuild:us-east-1:123456789012:project/oficina-k8s-production"
+    }
+  }
+}
+
+run "state_is_protected" {
+  command = apply
+
+  assert {
+    condition     = aws_s3_bucket_versioning.state.versioning_configuration[0].status == "Enabled"
+    error_message = "State versions must survive an accidental overwrite."
+  }
+
+  assert {
+    condition     = aws_s3_bucket_public_access_block.state.block_public_acls && aws_s3_bucket_public_access_block.state.block_public_policy && aws_s3_bucket_public_access_block.state.ignore_public_acls && aws_s3_bucket_public_access_block.state.restrict_public_buckets
+    error_message = "State must block every public access path."
+  }
+
+  assert {
+    condition     = aws_s3_bucket.state.force_destroy == false && aws_s3_bucket.artifact.force_destroy == false
+    error_message = "Buckets must retain data unless an operator explicitly destroys it outside this module."
+  }
+
+  assert {
+    condition     = can(regex("aws:SecureTransport", aws_s3_bucket_policy.state_https_only.policy))
+    error_message = "State bucket policy must deny non-HTTPS requests."
+  }
+}
+
+run "trust_subjects_are_environment_scoped" {
+  command = plan
+
+  assert {
+    condition     = output.launcher_trust_subjects["k8s_staging"] == "repo:example/oficina-k8s-infra:environment:staging"
+    error_message = "Staging trust must be an exact environment subject, not a wildcard or pull-request subject."
+  }
+
+  assert {
+    condition     = can(regex("sts.amazonaws.com", output.launcher_trust_policies["k8s_production"]))
+    error_message = "GitHub OIDC trust must require sts.amazonaws.com audience."
+  }
+}
+
+run "rejects_wrong_branch_for_environment" {
+  command = plan
+
+  variables {
+    launchers = {
+      invalid = {
+        repository            = "example/oficina-k8s-infra"
+        environment           = "production"
+        branch                = "develop"
+        source_prefix         = "releases/k8s/production"
+        codebuild_project_arn = "arn:aws:codebuild:us-east-1:123456789012:project/oficina-k8s-production"
+      }
+    }
+  }
+
+  expect_failures = [var.launchers]
+}
