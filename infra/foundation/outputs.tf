@@ -1,0 +1,10 @@
+output "schema_version" { value = 1 }
+output "environment" { value = "foundation" }
+output "vpc_id" { value = module.network.vpc_id }
+output "private_subnet_ids" { value = module.network.private_subnet_ids }
+output "database_subnet_ids" { value = module.network.database_subnet_ids }
+output "cluster_name" { value = module.cluster.cluster_name }
+output "cluster_oidc_provider_arn" { value = module.cluster.cluster_oidc_provider_arn }
+output "cluster_endpoint" { value = module.cluster.cluster_endpoint }
+output "codebuild_projects" { value = module.deployment_executor.codebuild_projects }
+output "deployer_repository_url" { value = module.deployment_executor.ecr_repository_url }
