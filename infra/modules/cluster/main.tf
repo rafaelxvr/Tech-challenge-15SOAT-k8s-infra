@@ -1,8 +1,8 @@
 locals {
   oidc_host = trimprefix(aws_eks_cluster.this.identity[0].oidc[0].issuer, "https://")
   tags      = { project = "oficina-phase3" }
-  # aws provider 5.100.0 exposes max_unavailable but not the EKS MINIMAL strategy field.
-  # Keep the exact approved API setting reviewable and require the executor to apply it serially.
+  # aws provider 5.100.0 exposes max_unavailable but not EKS's updateStrategy.
+  # The terraform_data executor below calls EKS's supported API before a version update.
   node_update_strategy = "MINIMAL"
   aws_node_irsa_trust = jsonencode({
     Version = "2012-10-17"
@@ -91,7 +91,28 @@ resource "aws_eks_node_group" "workers" {
   update_config {
     max_unavailable = 1
   }
+  lifecycle {
+    # Version changes are applied only by workers_minimal_update. Letting the
+    # provider update this field would use EKS's DEFAULT surge strategy first.
+    ignore_changes = [release_version]
+  }
   tags = local.tags
+}
+
+resource "terraform_data" "workers_minimal_update" {
+  triggers_replace = {
+    cluster_name                     = aws_eks_cluster.this.name
+    node_group_release_versions_json = jsonencode({ for az, group in aws_eks_node_group.workers : group.node_group_name => var.node_ami_release_version })
+    max_unavailable                  = 1
+    update_strategy                  = local.node_update_strategy
+  }
+
+  depends_on = [aws_eks_node_group.workers]
+
+  provisioner "local-exec" {
+    interpreter = ["pwsh", "-NoLogo", "-NoProfile", "-File"]
+    command     = "${path.module}/scripts/apply-minimal-node-update.ps1 -Region ${var.aws_region} -ClusterName ${aws_eks_cluster.this.name} -NodeGroupReleaseVersionsJson '${self.triggers_replace.node_group_release_versions_json}' -UpdateStrategy ${local.node_update_strategy} -MaxUnavailable 1"
+  }
 }
 
 resource "terraform_data" "fixed_two_node_capacity" {

@@ -38,4 +38,8 @@ run "private_api_two_fixed_workers_and_minimal_updates" {
     condition     = can(regex("enableNetworkPolicy", aws_eks_addon.vpc_cni.configuration_values)) && length(var.oidc_thumbprint) == 40
     error_message = "VPC CNI network-policy enforcement must be enabled at the add-on, not only in YAML."
   }
+  assert {
+    condition     = terraform_data.workers_minimal_update.triggers_replace.update_strategy == "MINIMAL" && terraform_data.workers_minimal_update.triggers_replace.max_unavailable == 1 && can(regex("workers-", terraform_data.workers_minimal_update.triggers_replace.node_group_release_versions_json))
+    error_message = "Version changes must be delegated to the serial MINIMAL EKS API executor before replacement can begin."
+  }
 }

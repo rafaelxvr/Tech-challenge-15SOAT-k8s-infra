@@ -3,6 +3,7 @@ variable "aws_region" { type = string }
 variable "account_id" { type = string }
 variable "vpc_id" { type = string }
 variable "cluster_arn" { type = string }
+variable "node_group_arns" { type = list(string) }
 variable "artifact_bucket_name" { type = string }
 variable "private_subnet_ids" { type = list(string) }
 variable "security_group_ids" { type = list(string) }
@@ -26,7 +27,11 @@ variable "deployments" {
       for deployment in values(var.deployments) :
       contains(["staging", "production"], deployment.environment) &&
       can(regex("^[a-z0-9][a-z0-9/_-]*$", deployment.source_prefix))
+      ]) && alltrue([
+      for repository in distinct([for deployment in values(var.deployments) : deployment.repository]) :
+      length([for deployment in values(var.deployments) : deployment.environment if deployment.repository == repository]) == 2 &&
+      toset([for deployment in values(var.deployments) : deployment.environment if deployment.repository == repository]) == toset(["staging", "production"])
     ])
-    error_message = "deployments must contain exactly four repositories in both reviewed environments with bounded S3 source prefixes."
+    error_message = "deployments must contain exactly four repositories, each with one staging and one production project and a bounded S3 source prefix."
   }
 }

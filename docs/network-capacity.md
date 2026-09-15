@@ -6,7 +6,9 @@ Foundation creates one `10.42.0.0/16` VPC across two reviewed AZs. Each AZ has o
 
 The EKS control-plane endpoint is private-only. The cluster is EKS 1.35. The deploy-time input locks the AL2023 release and EKS add-on builds after compatibility review; Terraform deliberately rejects an empty or unpinned value rather than inventing a current AMI. VPC CNI is configured with `enableNetworkPolicy=true`, so future Kubernetes NetworkPolicy tests have an enforcing data plane rather than YAML-only evidence.
 
-The cluster has two `m7i-flex.large` x86_64 groups, one per AZ. Each group always has exactly one worker, 20 GiB gp3 root storage, and a serial `MINIMAL` update with `maxUnavailable=1`. This prevents replacement surge capacity from exceeding the observed account vCPU quota. It also means an update temporarily reduces capacity; live update sequencing is tested in R4, never during Terraform planning.
+The cluster has two `m7i-flex.large` x86_64 groups, one per AZ. Each group always has exactly one worker and 20 GiB gp3 root storage. AWS provider 5.100 cannot set EKS `updateStrategy`, so the node-group resource ignores later `release_version` changes. A Terraform apply-bound executor then calls `UpdateNodegroupConfig(maxUnavailable=1, updateStrategy=MINIMAL)`, waits for that exact EKS update to finish, and only then calls `UpdateNodegroupVersion`. It processes sorted node-group names one at a time. This prevents Terraform from using EKS's default surge strategy before the MINIMAL setting exists, and prevents both groups being replaced together. It also means an update temporarily reduces capacity.
+
+The module's mock test verifies the executor trigger, fixed capacity and supported `max_unavailable=1` setting. Its static contract test verifies the ignored provider release update and the configuration-before-version API sequence. R4's residual cloud validation is limited to recording the returned EKS update strategy/status and confirming the observed one-node-at-a-time behavior; it is not the first enforcement point.
 
 ## Capacity calculation
 
@@ -23,7 +25,7 @@ The 3.25 vCPU/9 GiB total fits within the 4 vCPU/16 GiB physical hypothesis, lea
 
 ## Private deployment executors
 
-There are exactly eight short-lived CodeBuild projects: four repository owners × staging and production. Each has a unique IAM role, S3 source prefix, CloudWatch Logs group, private subnet pair and CodeBuild security group. The projects use Linux Small, one active build maximum, S3 source and `privileged_mode=false`; they do not store GitHub credentials or run persistent runners. The reviewed bootstrap/human operation creates foundation before these jobs exist. Later private EKS/RDS work uses these jobs because GitHub-hosted runners cannot reach private endpoints.
+There are exactly eight short-lived CodeBuild projects: four repository owners × staging and production. Terraform rejects any input that does not have exactly one `staging` and one `production` project for every repository. Each project has a unique IAM role, S3 source prefix, CloudWatch Logs group, private subnet pair and CodeBuild security group. The projects use Linux Small, one active build maximum, S3 source and `privileged_mode=false`; they do not store GitHub credentials or run persistent runners. The reviewed bootstrap/human operation creates foundation before these jobs exist. Later private EKS/RDS work uses these jobs because GitHub-hosted runners cannot reach private endpoints.
 
 The service role uses `ecr:GetAuthorizationToken` with the AWS-required `Resource="*"` exception; layer and image actions remain scoped to the sole platform deployer repository. This is not an IRSA trust subject. The VPC CNI IRSA policy has exact audience and service-account conditions and no wildcard subject.
 

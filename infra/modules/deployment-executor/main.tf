@@ -43,10 +43,10 @@ locals {
           Resource = "*"
         },
         {
-          Sid      = "DescribeOnlyReviewedCluster"
+          Sid      = "ControlOnlyReviewedClusterAndNodeGroups"
           Effect   = "Allow"
-          Action   = "eks:DescribeCluster"
-          Resource = var.cluster_arn
+          Action   = ["eks:DescribeCluster", "eks:DescribeNodegroup", "eks:DescribeUpdate", "eks:UpdateNodegroupConfig", "eks:UpdateNodegroupVersion"]
+          Resource = concat([var.cluster_arn], var.node_group_arns)
         }
       ]
     })

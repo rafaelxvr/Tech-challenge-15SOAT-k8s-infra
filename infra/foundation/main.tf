@@ -87,6 +87,7 @@ module "deployment_executor" {
   account_id            = var.account_id
   vpc_id                = module.network.vpc_id
   cluster_arn           = module.cluster.cluster_arn
+  node_group_arns       = module.cluster.node_group_arns
   artifact_bucket_name  = var.artifact_bucket_name
   private_subnet_ids    = module.network.private_subnet_ids
   security_group_ids    = [aws_security_group.codebuild.id]
