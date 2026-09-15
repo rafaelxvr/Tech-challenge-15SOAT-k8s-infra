@@ -14,7 +14,11 @@ Run these commands only during the approved cloud window, from a dedicated MFA-p
    ```powershell
    $tfvars = 'C:\secure\phase3-bootstrap.tfvars.json'
    .\scripts\new-bootstrap-tfvars.ps1 -InputFile $inputs -OutputFile $tfvars
-   Get-Content -Raw -LiteralPath $tfvars | ConvertFrom-Json | Format-List
+   $written = Get-Content -Raw -LiteralPath $tfvars | ConvertFrom-Json
+   $requiredKeys = @('aws_region', 'account_id', 'state_bucket_name', 'artifact_bucket_name', 'github_oidc_provider_arn', 'state_keys', 'launchers', 'runtime_role_arns')
+   $missingKeys = $requiredKeys | Where-Object { $null -eq $written.PSObject.Properties[$_] }
+   if ($missingKeys -or @($written.launchers.PSObject.Properties).Count -eq 0) { throw 'Generated Terraform variables are incomplete.' }
+   Write-Output 'Bootstrap Terraform variable structure is complete.'
    ```
 
    The input file must already contain the reviewed repository/environment records. Configure GitHub's `staging` environment to allow `develop` and its `production` environment to allow `main`; PR workflows do not receive `id-token: write` or an AWS role. Each staging record must use `develop`; each production record must use `main`. The trusted subject is exactly `repo:OWNER/REPOSITORY:environment:staging` or `...:production`, and never a pull-request subject.
@@ -31,10 +35,11 @@ Run these commands only during the approved cloud window, from a dedicated MFA-p
 4. After the state bucket exists, migrate the local bootstrap state to its dedicated S3 key with S3 native locking. Substitute only values read from the validated input file.
 
    ```powershell
+   $deployment = Get-Content -Raw -LiteralPath $inputs | ConvertFrom-Json
    terraform -chdir=infra/bootstrap init -migrate-state `
-     -backend-config="bucket=$($input.stateBucketName)" `
+     -backend-config="bucket=$($deployment.stateBucketName)" `
      -backend-config='key=bootstrap/terraform.tfstate' `
-     -backend-config="region=$($input.region)" `
+     -backend-config="region=$($deployment.region)" `
      -backend-config='use_lockfile=true'
    ```
 

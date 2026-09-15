@@ -110,3 +110,13 @@ run "rejects_codebuild_project_outside_approved_account_or_region" {
 
   expect_failures = [var.launchers]
 }
+
+run "rejects_runtime_role_from_another_account" {
+  command = plan
+
+  variables {
+    runtime_role_arns = ["arn:aws:iam::210987654321:role/oficina-runtime"]
+  }
+
+  expect_failures = [var.runtime_role_arns]
+}
