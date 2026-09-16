@@ -1,0 +1,34 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: oficina-target-group-binding-contract
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["elbv2.k8s.aws"]
+        apiVersions: ["v1beta1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["targetgroupbindings"]
+  validations:
+    - expression: >-
+        object.metadata.name == 'oficina-app'
+      message: "oficina-app TargetGroupBinding must use a reviewed Oficina environment namespace."
+    - expression: >-
+        has(object.metadata.labels['app.kubernetes.io/managed-by']) &&
+        has(object.metadata.labels['oficina.io/managed-by']) &&
+        object.metadata.labels['app.kubernetes.io/managed-by'] == 'oficina-k8s-infra' &&
+        object.metadata.labels['oficina.io/managed-by'] == 'platform-binding'
+      message: "oficina-app TargetGroupBinding must retain the trusted platform-binding ownership labels."
+    - expression: >-
+        (object.metadata.namespace == 'oficina-staging' && object.spec.targetGroupARN == '${STAGING_TARGET_GROUP_ARN}') ||
+        (object.metadata.namespace == 'oficina-production' && object.spec.targetGroupARN == '${PRODUCTION_TARGET_GROUP_ARN}')
+      message: "oficina-app TargetGroupBinding must use its environment's exact reviewed target group ARN."
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: oficina-target-group-binding-contract
+spec:
+  policyName: oficina-target-group-binding-contract
+  validationActions: [Deny]

@@ -17,6 +17,7 @@ try {
     $binding = & $renderer -Environment staging -TargetGroupArn $stagingArn -OutputDirectory $tempDirectory
     $rendered = Get-Content -LiteralPath $binding -Raw
     if ($rendered -notmatch 'namespace: oficina-staging' -or $rendered -notmatch [regex]::Escape($stagingArn)) { throw 'Trusted binding renderer did not keep staging namespace and target group together.' }
+    if ($rendered -notmatch 'app.kubernetes.io/managed-by: oficina-k8s-infra' -or $rendered -notmatch 'oficina.io/managed-by: platform-binding') { throw 'Trusted binding renderer did not retain the required managed-by labels.' }
 
     $retargetRejected = $false
     try {
