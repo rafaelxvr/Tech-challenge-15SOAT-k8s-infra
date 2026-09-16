@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "defaultDecision": "DENY",
+  "routes": [
+    {"method":"POST","path":"/api/auth/cpf/desafios","owner":"FUN","operation":"CriarDesafioHandler","decision":"ALLOW","grants":[{"actor":"anonymous","roles":[],"scopes":[]}]},
+    {"method":"POST","path":"/api/auth/cpf/verificar","owner":"FUN","operation":"VerificarDesafioHandler","decision":"ALLOW","grants":[{"actor":"anonymous","roles":[],"scopes":[]}]},
+    {"method":"POST","path":"/api/auth/login","owner":"APP","operation":"AuthController.login","decision":"ALLOW","grants":[{"actor":"anonymous","roles":[],"scopes":[]}]},
+    {"method":"GET","path":"/health","owner":"APP","operation":"ReadinessHealth","decision":"ALLOW","grants":[{"actor":"anonymous","roles":[],"scopes":[]}]},
+
+    {"method":"GET","path":"/api/clientes","owner":"APP","operation":"ClienteController.listar","decision":"ALLOW","grants":[{"actor":"staff","roles":["ADMIN","MECANICO"],"scopes":[]}]},
+    {"method":"GET","path":"/api/clientes/{id}","owner":"APP","operation":"ClienteController.buscar","decision":"ALLOW","grants":[{"actor":"staff","roles":["ADMIN","MECANICO"],"scopes":[]}]},
+    {"method":"POST","path":"/api/clientes","owner":"APP","operation":"ClienteController.criar","decision":"ALLOW","grants":[{"actor":"staff","roles":["ADMIN"],"scopes":[]}]},
+    {"method":"PUT","path":"/api/clientes/{id}","owner":"APP","operation":"ClienteController.atualizar","decision":"ALLOW","grants":[{"actor":"staff","roles":["ADMIN"],"scopes":[]}]},
+    {"method":"DELETE","path":"/api/clientes/{id}","owner":"APP","operation":"ClienteController.desativar","decision":"ALLOW","grants":[{"actor":"staff","roles":["ADMIN"],"scopes":[]}]},
+
+    {"method":"GET","path":"/api/veiculos","owner":"APP","operation":"VeiculoController.listar","decision":"ALLOW","grants":[{"actor":"staff","roles":["ADMIN","MECANICO"],"scopes":[]}]},
+    {"method":"GET","path":"/api/veiculos/{id}","owner":"APP","operation":"VeiculoController.buscar","decision":"ALLOW","grants":[{"actor":"staff","roles":["ADMIN","MECANICO"],"scopes":[]}]},
+    {"method":"POST","path":"/api/veiculos","owner":"APP","operation":"VeiculoController.criar","decision":"ALLOW","grants":[{"actor":"staff","roles":["ADMIN","MECANICO"],"scopes":[]}]},
+    {"method":"PUT","path":"/api/veiculos/{id}","owner":"APP","operation":"VeiculoController.atualizar","decision":"ALLOW","grants":[{"actor":"staff","roles":["ADMIN","MECANICO"],"scopes":[]}]},
+    {"method":"DELETE","path":"/api/veiculos/{id}","owner":"APP","operation":"VeiculoController.desativar","decision":"ALLOW","grants":[{"actor":"staff","roles":["ADMIN"],"scopes":[]}]},
+
+    {"method":"GET","path":"/api/servicos","owner":"APP","operation":"ServicoCatalogoController.listar","decision":"ALLOW","grants":[{"actor":"staff","roles":["ADMIN","MECANICO"],"scopes":[]}]},
+    {"method":"GET","path":"/api/servicos/{id}","owner":"APP","operation":"ServicoCatalogoController.buscar","decision":"ALLOW","grants":[{"actor":"staff","roles":["ADMIN","MECANICO"],"scopes":[]}]},
+    {"method":"POST","path":"/api/servicos","owner":"APP","operation":"ServicoCatalogoController.criar","decision":"ALLOW","grants":[{"actor":"staff","roles":["ADMIN"],"scopes":[]}]},
+    {"method":"PUT","path":"/api/servicos/{id}","owner":"APP","operation":"ServicoCatalogoController.atualizar","decision":"ALLOW","grants":[{"actor":"staff","roles":["ADMIN"],"scopes":[]}]},
+    {"method":"DELETE","path":"/api/servicos/{id}","owner":"APP","operation":"ServicoCatalogoController.desativar","decision":"ALLOW","grants":[{"actor":"staff","roles":["ADMIN"],"scopes":[]}]},
+
+    {"method":"GET","path":"/api/pecas","owner":"APP","operation":"PecaController.listar","decision":"ALLOW","grants":[{"actor":"staff","roles":["ADMIN","MECANICO"],"scopes":[]}]},
+    {"method":"GET","path":"/api/pecas/{id}","owner":"APP","operation":"PecaController.buscar","decision":"ALLOW","grants":[{"actor":"staff","roles":["ADMIN","MECANICO"],"scopes":[]}]},
+    {"method":"POST","path":"/api/pecas","owner":"APP","operation":"PecaController.criar","decision":"ALLOW","grants":[{"actor":"staff","roles":["ADMIN"],"scopes":[]}]},
+    {"method":"PUT","path":"/api/pecas/{id}","owner":"APP","operation":"PecaController.atualizar","decision":"ALLOW","grants":[{"actor":"staff","roles":["ADMIN"],"scopes":[]}]},
+    {"method":"DELETE","path":"/api/pecas/{id}","owner":"APP","operation":"PecaController.desativar","decision":"ALLOW","grants":[{"actor":"staff","roles":["ADMIN"],"scopes":[]}]},
+
+    {"method":"POST","path":"/api/ordens-servico","owner":"APP","operation":"OrdemServicoController.criar","decision":"ALLOW","grants":[{"actor":"staff","roles":["ADMIN","MECANICO"],"scopes":[]}]},
+    {"method":"GET","path":"/api/ordens-servico","owner":"APP","operation":"OrdemServicoController.listar","decision":"ALLOW","grants":[{"actor":"staff","roles":["ADMIN","MECANICO"],"scopes":[]}]},
+    {"method":"GET","path":"/api/ordens-servico/{id}","owner":"APP","operation":"OrdemServicoController.detalhar","decision":"ALLOW","grants":[{"actor":"staff","roles":["ADMIN","MECANICO"],"scopes":[]}]},
+    {"method":"GET","path":"/api/ordens-servico/{numero}/acompanhamento","owner":"APP","operation":"OrdemServicoController.acompanhamento","decision":"ALLOW","grants":[{"actor":"customer","roles":[],"scopes":["orders:read:self"]},{"actor":"staff","roles":["ADMIN","MECANICO"],"scopes":[]}]},
+    {"method":"POST","path":"/api/ordens-servico/{numero}/orcamento/decisao","owner":"APP","operation":"OrdemServicoController.decisaoOrcamento","decision":"ALLOW","grants":[{"actor":"customer","roles":[],"scopes":["orders:decide:self"]}]},
+    {"method":"POST","path":"/api/ordens-servico/{numero}/orcamento/notificacao","owner":"APP","operation":"OrdemServicoController.notificacaoOrcamento","decision":"ALLOW","grants":[{"actor":"customer","roles":[],"scopes":["orders:decide:self"]}]},
+    {"method":"POST","path":"/api/ordens-servico/{numero}/aprovar","owner":"APP","operation":"OrdemServicoController.aprovar","decision":"ALLOW","grants":[{"actor":"customer","roles":[],"scopes":["orders:decide:self"]}]},
+    {"method":"POST","path":"/api/ordens-servico/email/atualizar-status","owner":"APP","operation":"OrdemServicoController.atualizarStatusViaEmail","decision":"DENY","grants":[]},
+    {"method":"POST","path":"/api/ordens-servico/{id}/iniciar-diagnostico","owner":"APP","operation":"OrdemServicoController.iniciarDiagnostico","decision":"ALLOW","grants":[{"actor":"staff","roles":["ADMIN","MECANICO"],"scopes":[]}]},
+    {"method":"POST","path":"/api/ordens-servico/{id}/enviar-orcamento","owner":"APP","operation":"OrdemServicoController.enviarOrcamento","decision":"ALLOW","grants":[{"actor":"staff","roles":["ADMIN","MECANICO"],"scopes":[]}]},
+    {"method":"POST","path":"/api/ordens-servico/{id}/finalizar","owner":"APP","operation":"OrdemServicoController.finalizar","decision":"ALLOW","grants":[{"actor":"staff","roles":["ADMIN","MECANICO"],"scopes":[]}]},
+    {"method":"POST","path":"/api/ordens-servico/{id}/entregar","owner":"APP","operation":"OrdemServicoController.entregar","decision":"ALLOW","grants":[{"actor":"staff","roles":["ADMIN","MECANICO"],"scopes":[]}]},
+
+    {"method":"GET","path":"/api/admin/metricas/tempo-execucao-servicos","owner":"APP","operation":"MetricasAdminController.tempoExecucao","decision":"ALLOW","grants":[{"actor":"staff","roles":["ADMIN"],"scopes":[]}]},
+    {"method":"GET","path":"/api/admin/relatorios/ordens","owner":"APP","operation":"RelatoriosAdminController.consultar","decision":"ALLOW","grants":[{"actor":"staff","roles":["ADMIN"],"scopes":[]}]}
+  ]
+}

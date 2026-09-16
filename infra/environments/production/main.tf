@@ -12,4 +12,6 @@ module "platform" {
   vpc_link_id            = var.foundation_outputs.vpc_link_id
   listener_port          = 8081
   deployer_principal_arn = var.foundation_outputs.codebuild_projects["k8s_production"].roleArn
+  function_arns          = var.functions_outputs.functionArns
+  cors_allow_origins     = var.gateway_allowed_origins
 }

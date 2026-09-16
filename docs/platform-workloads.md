@@ -18,6 +18,30 @@ The renderer requires immutable image and infrastructure-reference inputs. It re
 
 The foundation creates the shared internal ALB, VPC link and fixed 503 listeners. The platform Terraform module creates the per-environment IP target group, one catch-all forwarding listener rule, HTTP API/integrations and exact EKS access entry. Environment roots receive those fields as an allowlisted `foundation_outputs` contract, not independent manually copied IDs. Terraform never attaches individual targets; the pinned AWS Load Balancer Controller does that through `TargetGroupBinding` after the stable Service exists.
 
+## Gateway and functions contract
+
+The platform vendors the byte-identical APP `phase3-v2/routes.json` route matrix
+(SHA-256 `7e1cff5e6c57174af792bb44b33e63572f885698ab5ef2f24d5aeebda883c1a8`).
+It creates no catch-all route: `ALLOW` entries are the only routes published, so
+the retired email mutation is absent and the v2 ADMIN report is protected.
+
+Each environment consumes only the `functionArns` allowlisted output from
+`oficina-functions`: `authorizer`, `challenge`, and `verification`. The request
+authorizer is payload v2/simple-response with a zero result TTL and no configured
+identity sources. CPF challenge and verification are the two public Lambda proxy
+routes; all other protected APP routes use the authorizer. Lambda permissions are
+scoped to the environment API's authorizer or exact method/path. This repository
+does not configure function runtime secrets, customer private keys, database
+credentials, VPC attachment or Function URLs; those remain in the functions
+state and runtime role.
+
+The API reaches APP only through the existing VPC Link and internal ALB. Access
+logs retain only request ID, route template, status, bounded latency fields and
+safe authorizer category for one day. CORS accepts only explicitly injected HTTPS
+origins, never `*`, and does not allow credentials. Initial stage throttling is
+one request/second with a burst of two; R4 records the live behavior before any
+adjustment.
+
 The application-release role cannot read, create or mutate `TargetGroupBinding`. A separate reviewed `platform_binding_principal_arn` is the only principal permitted to apply `k8s/platform/binding/target-group-binding.yaml`. Render it separately after the stable Service exists; the renderers accept only the `oficina-phase3-<environment>-app` target-group ARN produced by the fixed-name platform Terraform module.
 
 Before either binding is applied, a trusted platform administrator renders and applies `k8s/platform/admission/target-group-binding-admission.yaml`. This is Kubernetes 1.35's native `ValidatingAdmissionPolicy`, so it adds no webhook deployment, service account, RBAC or controller capacity. It fails closed for every `TargetGroupBinding` create/update unless the object is named `oficina-app`, has the two trusted managed-by labels, and pairs `oficina-staging` or `oficina-production` with its literal reviewed target-group ARN. It therefore blocks a direct `kubectl patch` to the other environment even for the name-limited platform-binding identity.

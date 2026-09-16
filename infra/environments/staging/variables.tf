@@ -16,3 +16,17 @@ variable "foundation_outputs" {
   })
   description = "The allowlisted foundation outputs.v1.json values, injected by the verified deployment workflow."
 }
+variable "functions_outputs" {
+  type = object({
+    functionArns = object({
+      authorizer   = string
+      challenge    = string
+      verification = string
+    })
+  })
+  description = "The allowlisted oficina-functions outputs.v1.json values. Runtime configuration and secrets stay in the function state."
+}
+variable "gateway_allowed_origins" {
+  type        = set(string)
+  description = "Reviewed staging browser origins; required because the platform never opens CORS with a wildcard."
+}

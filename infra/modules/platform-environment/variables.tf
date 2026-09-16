@@ -45,3 +45,28 @@ variable "namespace" {
     error_message = "namespace must match the isolated environment name."
   }
 }
+variable "function_arns" {
+  type = object({
+    authorizer   = string
+    challenge    = string
+    verification = string
+  })
+  description = "Allowlisted functionArns values from the functions outputs.v1.json artifact. These are function ARNs, not URLs."
+  validation {
+    condition = alltrue([
+      for arn in values(var.function_arns) :
+      can(regex("^arn:aws:lambda:us-east-1:[0-9]{12}:function:[A-Za-z0-9_-]+(?::[A-Za-z0-9_-]+)?$", arn))
+    ])
+    error_message = "function_arns must contain reviewed us-east-1 Lambda function ARNs; function URLs are not accepted."
+  }
+}
+variable "cors_allow_origins" {
+  type        = set(string)
+  description = "Explicit reviewed HTTPS browser origins. Wildcard origins and credentials are prohibited."
+  validation {
+    condition = length(var.cors_allow_origins) > 0 && alltrue([
+      for origin in var.cors_allow_origins : can(regex("^https://[A-Za-z0-9][A-Za-z0-9.-]*(?::[0-9]{1,5})?$", origin))
+    ])
+    error_message = "cors_allow_origins must contain explicit HTTPS origins only; wildcard, HTTP, path and query origins are prohibited."
+  }
+}
