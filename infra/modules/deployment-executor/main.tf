@@ -71,42 +71,141 @@ locals {
       profile = "database-${deployment.environment}"
       statements = [
         {
-          Sid      = "DescribeOnlyReviewedDatabaseNetwork"
-          Effect   = "Allow"
-          Action   = ["ec2:DescribeVpcs", "ec2:DescribeSubnets", "ec2:DescribeSecurityGroups", "rds:DescribeDBInstances", "rds:DescribeDBSubnetGroups", "rds:ListTagsForResource"]
-          Resource = "*"
-        },
-        {
-          Sid       = "ManageOnlyTaggedEnvironmentDatabase"
+          # These catalog/network APIs have no resource-level authorization.
+          Sid       = "DescribeDatabaseCatalogAndNetwork"
           Effect    = "Allow"
-          Action    = ["rds:CreateDBInstance", "rds:CreateDBSubnetGroup"]
+          Action    = ["ec2:DescribeVpcs", "ec2:DescribeSubnets", "ec2:DescribeSecurityGroups", "ec2:DescribeSecurityGroupRules", "rds:DescribeDBEngineVersions", "rds:DescribeOrderableDBInstanceOptions"]
           Resource  = "*"
-          Condition = { StringEquals = { "aws:RequestTag/project" = "oficina-phase3", "aws:RequestTag/environment" = deployment.environment } }
+          Condition = { StringEquals = { "aws:RequestedRegion" = var.aws_region } }
         },
         {
-          Sid      = "ManageOnlyNamedEnvironmentDatabase"
+          Sid      = "CreateNamedDatabaseResources"
           Effect   = "Allow"
-          Action   = ["rds:ModifyDBInstance", "rds:DeleteDBInstance", "rds:RebootDBInstance"]
-          Resource = "arn:aws:rds:${var.aws_region}:${var.account_id}:db:${var.name}-${deployment.environment}-*"
+          Action   = ["rds:CreateDBInstance", "rds:CreateDBSubnetGroup", "rds:CreateDBParameterGroup"]
+          Resource = [for type in ["db", "subgrp", "pg"] : "arn:aws:rds:${var.aws_region}:${var.account_id}:${type}:${var.name}-${deployment.environment}-postgres"]
+          Condition = {
+            StringEquals = { "aws:RequestTag/project" = "oficina-phase3", "aws:RequestTag/environment" = deployment.environment, "aws:RequestTag/owner" = "oficina-db-infra" }
+            BoolIfExists = { "rds:ManageMasterUserPassword" = "true", "rds:PubliclyAccessible" = "false" }
+          }
         },
         {
-          Sid      = "ManageOnlyNamedEnvironmentDatabaseSubnetGroups"
-          Effect   = "Allow"
-          Action   = ["rds:ModifyDBSubnetGroup", "rds:DeleteDBSubnetGroup"]
-          Resource = "arn:aws:rds:${var.aws_region}:${var.account_id}:subgrp:${var.name}-${deployment.environment}-*"
-        },
-        {
-          Sid       = "ManageOnlyEnvironmentDatabaseSecrets"
+          # Resource-capable Describe/List actions remain bound to exact names.
+          Sid       = "ManageNamedDatabaseResources"
           Effect    = "Allow"
-          Action    = ["secretsmanager:CreateSecret"]
-          Resource  = "*"
-          Condition = { StringEquals = { "aws:RequestTag/project" = "oficina-phase3", "aws:RequestTag/environment" = deployment.environment } }
+          Action    = ["rds:DescribeDBInstances", "rds:ModifyDBInstance", "rds:DeleteDBInstance", "rds:RebootDBInstance", "rds:DescribeDBSubnetGroups", "rds:ModifyDBSubnetGroup", "rds:DeleteDBSubnetGroup", "rds:DescribeDBParameterGroups", "rds:DescribeDBParameters", "rds:ModifyDBParameterGroup", "rds:ResetDBParameterGroup", "rds:DeleteDBParameterGroup", "rds:ListTagsForResource", "rds:AddTagsToResource", "rds:RemoveTagsFromResource"]
+          Resource  = [for type in ["db", "subgrp", "pg"] : "arn:aws:rds:${var.aws_region}:${var.account_id}:${type}:${var.name}-${deployment.environment}-postgres"]
+          Condition = { BoolIfExists = { "rds:ManageMasterUserPassword" = "true" } }
         },
         {
-          Sid      = "ReadWriteOnlyNamedEnvironmentDatabaseSecrets"
+          # PostgreSQL uses this AWS default option group; no group mutation grant.
+          Sid      = "UseDefaultPostgresOptionGroup"
           Effect   = "Allow"
-          Action   = ["secretsmanager:DescribeSecret", "secretsmanager:UpdateSecret", "secretsmanager:PutSecretValue", "secretsmanager:DeleteSecret", "secretsmanager:TagResource"]
-          Resource = "arn:aws:secretsmanager:${var.aws_region}:${var.account_id}:secret:oficina/${deployment.environment}/*"
+          Action   = ["rds:CreateDBInstance", "rds:ModifyDBInstance"]
+          Resource = "arn:aws:rds:${var.aws_region}:${var.account_id}:og:default:postgres-16"
+        },
+        {
+          Sid      = "CreateOnlyDatabaseFinalSnapshot"
+          Effect   = "Allow"
+          Action   = ["rds:CreateDBSnapshot", "rds:AddTagsToResource"]
+          Resource = ["arn:aws:rds:${var.aws_region}:${var.account_id}:db:${var.name}-${deployment.environment}-postgres", "arn:aws:rds:${var.aws_region}:${var.account_id}:snapshot:${var.name}-${deployment.environment}-postgres-final"]
+        },
+        {
+          # EC2 authorizes SG creation against the VPC and the prospective SG separately.
+          Sid      = "CreateDatabaseGroupInReviewedVpc"
+          Effect   = "Allow"
+          Action   = "ec2:CreateSecurityGroup"
+          Resource = "arn:aws:ec2:${var.aws_region}:${var.account_id}:vpc/${var.vpc_id}"
+        },
+        {
+          Sid       = "CreateTaggedDatabaseGroup"
+          Effect    = "Allow"
+          Action    = "ec2:CreateSecurityGroup"
+          Resource  = "arn:aws:ec2:${var.aws_region}:${var.account_id}:security-group/*"
+          Condition = { StringEquals = { "aws:RequestTag/project" = "oficina-phase3", "aws:RequestTag/environment" = deployment.environment, "aws:RequestTag/owner" = "oficina-db-infra" } }
+        },
+        {
+          # Revoke egress is needed to remove EC2's default allow-all rule on creation.
+          Sid      = "ManageDatabaseGroupsInReviewedVpc"
+          Effect   = "Allow"
+          Action   = ["ec2:DeleteSecurityGroup", "ec2:AuthorizeSecurityGroupIngress", "ec2:RevokeSecurityGroupIngress", "ec2:RevokeSecurityGroupEgress", "ec2:ModifySecurityGroupRules"]
+          Resource = "arn:aws:ec2:${var.aws_region}:${var.account_id}:security-group/*"
+          Condition = {
+            ArnEquals    = { "ec2:Vpc" = "arn:aws:ec2:${var.aws_region}:${var.account_id}:vpc/${var.vpc_id}" }
+            StringEquals = { "aws:ResourceTag/project" = "oficina-phase3", "aws:ResourceTag/environment" = deployment.environment, "aws:ResourceTag/owner" = "oficina-db-infra" }
+          }
+        },
+        {
+          # Tagged rule creation has a second resource authorization; ec2:Vpc is not supported on rule ARNs.
+          Sid       = "CreateTaggedDatabaseIngressRules"
+          Effect    = "Allow"
+          Action    = "ec2:AuthorizeSecurityGroupIngress"
+          Resource  = "arn:aws:ec2:${var.aws_region}:${var.account_id}:security-group-rule/*"
+          Condition = { StringEquals = { "aws:RequestTag/project" = "oficina-phase3", "aws:RequestTag/environment" = deployment.environment, "aws:RequestTag/owner" = "oficina-db-infra" } }
+        },
+        {
+          Sid       = "ModifyTaggedDatabaseRules"
+          Effect    = "Allow"
+          Action    = "ec2:ModifySecurityGroupRules"
+          Resource  = "arn:aws:ec2:${var.aws_region}:${var.account_id}:security-group-rule/*"
+          Condition = { StringEquals = { "aws:ResourceTag/project" = "oficina-phase3", "aws:ResourceTag/environment" = deployment.environment, "aws:ResourceTag/owner" = "oficina-db-infra" } }
+        },
+        {
+          Sid       = "TagDatabaseNetworkResourcesOnCreate"
+          Effect    = "Allow"
+          Action    = "ec2:CreateTags"
+          Resource  = ["arn:aws:ec2:${var.aws_region}:${var.account_id}:security-group/*", "arn:aws:ec2:${var.aws_region}:${var.account_id}:security-group-rule/*"]
+          Condition = { StringEquals = { "ec2:CreateAction" = ["CreateSecurityGroup", "AuthorizeSecurityGroupIngress"], "aws:RequestTag/project" = "oficina-phase3", "aws:RequestTag/environment" = deployment.environment, "aws:RequestTag/owner" = "oficina-db-infra" } }
+        },
+        {
+          Sid      = "RetagOnlyOwnedDatabaseNetworkResources"
+          Effect   = "Allow"
+          Action   = ["ec2:CreateTags", "ec2:DeleteTags"]
+          Resource = ["arn:aws:ec2:${var.aws_region}:${var.account_id}:security-group/*", "arn:aws:ec2:${var.aws_region}:${var.account_id}:security-group-rule/*"]
+          Condition = {
+            StringEquals                   = { "aws:ResourceTag/project" = "oficina-phase3", "aws:ResourceTag/environment" = deployment.environment, "aws:ResourceTag/owner" = "oficina-db-infra" }
+            "ForAllValues:StringNotEquals" = { "aws:TagKeys" = ["project", "environment", "owner"] }
+          }
+        },
+        {
+          # RDS generates the opaque secret name. Creation has no existing environment tag;
+          # the exact DB ARN permissions above and CalledVia constrain that initial operation.
+          Sid      = "CreateAndTagOnlyRdsManagedMasterSecret"
+          Effect   = "Allow"
+          Action   = ["secretsmanager:CreateSecret", "secretsmanager:TagResource"]
+          Resource = "arn:aws:secretsmanager:${var.aws_region}:${var.account_id}:secret:rds!db-*"
+          Condition = {
+            "ForAnyValue:StringEquals" = { "aws:CalledVia" = ["rds.amazonaws.com"] }
+            StringEqualsIfExists = {
+              "aws:RequestTag/aws:rds:primaryDBInstanceArn"  = "arn:aws:rds:${var.aws_region}:${var.account_id}:db:${var.name}-${deployment.environment}-postgres"
+              "aws:ResourceTag/aws:rds:primaryDBInstanceArn" = "arn:aws:rds:${var.aws_region}:${var.account_id}:db:${var.name}-${deployment.environment}-postgres"
+            }
+          }
+        },
+        {
+          Sid       = "DescribeOnlyAwsManagedDatabaseKeys"
+          Effect    = "Allow"
+          Action    = "kms:DescribeKey"
+          Resource  = "arn:aws:kms:${var.aws_region}:${var.account_id}:key/*"
+          Condition = { "ForAnyValue:StringEquals" = { "kms:ResourceAliases" = ["alias/aws/secretsmanager", "alias/aws/rds"] } }
+        },
+        {
+          Sid      = "PublishOnlyDatabaseEnvironmentOutputs"
+          Effect   = "Allow"
+          Action   = "s3:PutObject"
+          Resource = "arn:aws:s3:::${var.artifact_bucket_name}/releases/database/${deployment.environment}/outputs/*.json"
+        },
+        {
+          Sid      = "ReadAndReleaseSharedFoundationLock"
+          Effect   = "Allow"
+          Action   = ["s3:GetObject", "s3:DeleteObject"]
+          Resource = "arn:aws:s3:::${var.state_bucket_name}/deployment-locks/shared-foundation.json"
+        },
+        {
+          Sid       = "AcquireSharedFoundationLockConditionally"
+          Effect    = "Allow"
+          Action    = "s3:PutObject"
+          Resource  = "arn:aws:s3:::${var.state_bucket_name}/deployment-locks/shared-foundation.json"
+          Condition = { StringEquals = { "s3:if-none-match" = "*" } }
         }
       ]
       }) : deployment.repository == "oficina-functions" ? jsonencode({

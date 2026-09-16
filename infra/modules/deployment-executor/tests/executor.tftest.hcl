@@ -83,7 +83,8 @@ run "eight_bounded_private_deployers" {
   assert {
     condition = alltrue([
       strcontains(local.executor_permission_profile_documents["db_staging"], "rds:CreateDBInstance"),
-      strcontains(local.executor_permission_profile_documents["db_production"], "secretsmanager:PutSecretValue"),
+      strcontains(local.executor_permission_profile_documents["db_production"], "rds:ModifyDBParameterGroup"),
+      !strcontains(local.executor_permission_profile_documents["db_production"], "secretsmanager:PutSecretValue"),
       strcontains(local.executor_permission_profile_documents["functions_staging"], "lambda:CreateFunction"),
       strcontains(local.executor_permission_profile_documents["functions_production"], "dynamodb:UpdateTable"),
       strcontains(local.executor_permission_profile_documents["app_staging"], "eks:DescribeCluster"),
@@ -150,6 +151,106 @@ run "eight_bounded_private_deployers" {
       toset([for deployment in values(var.deployments) : deployment.environment if deployment.repository == repository]) == toset(["staging", "production"])
     ])
     error_message = "Every repository must receive exactly one executor for each reviewed environment."
+  }
+}
+
+run "database_permissions_reject_broad_and_cross_environment_scope" {
+  command = plan
+  override_resource {
+    target          = aws_ecr_repository.deployer
+    override_during = plan
+    values          = { arn = "arn:aws:ecr:us-east-1:123456789012:repository/oficina-phase3-deployer" }
+  }
+  assert {
+    condition = alltrue([for environment in ["staging", "production"] :
+      length(local.codebuild_policies["db_${environment}"]) <= 10240 &&
+      length(jsondecode(local.executor_permission_profile_documents["db_${environment}"]).statements) == 17 &&
+      !strcontains(local.codebuild_policies["db_${environment}"], environment == "staging" ? "production" : "staging") &&
+      alltrue([for statement in jsondecode(local.executor_permission_profile_documents["db_${environment}"]).statements :
+        statement.Effect == "Allow" &&
+        toset(try(tolist(statement.Resource), [tostring(statement.Resource)])) == toset({
+          DescribeDatabaseCatalogAndNetwork        = ["*"]
+          CreateNamedDatabaseResources             = [for type in ["db", "subgrp", "pg"] : "arn:aws:rds:us-east-1:123456789012:${type}:oficina-phase3-${environment}-postgres"]
+          ManageNamedDatabaseResources             = [for type in ["db", "subgrp", "pg"] : "arn:aws:rds:us-east-1:123456789012:${type}:oficina-phase3-${environment}-postgres"]
+          UseDefaultPostgresOptionGroup            = ["arn:aws:rds:us-east-1:123456789012:og:default:postgres-16"]
+          CreateOnlyDatabaseFinalSnapshot          = ["arn:aws:rds:us-east-1:123456789012:db:oficina-phase3-${environment}-postgres", "arn:aws:rds:us-east-1:123456789012:snapshot:oficina-phase3-${environment}-postgres-final"]
+          CreateDatabaseGroupInReviewedVpc         = ["arn:aws:ec2:us-east-1:123456789012:vpc/vpc-12345678"]
+          CreateTaggedDatabaseGroup                = ["arn:aws:ec2:us-east-1:123456789012:security-group/*"]
+          ManageDatabaseGroupsInReviewedVpc        = ["arn:aws:ec2:us-east-1:123456789012:security-group/*"]
+          CreateTaggedDatabaseIngressRules         = ["arn:aws:ec2:us-east-1:123456789012:security-group-rule/*"]
+          ModifyTaggedDatabaseRules                = ["arn:aws:ec2:us-east-1:123456789012:security-group-rule/*"]
+          TagDatabaseNetworkResourcesOnCreate      = ["arn:aws:ec2:us-east-1:123456789012:security-group/*", "arn:aws:ec2:us-east-1:123456789012:security-group-rule/*"]
+          RetagOnlyOwnedDatabaseNetworkResources   = ["arn:aws:ec2:us-east-1:123456789012:security-group/*", "arn:aws:ec2:us-east-1:123456789012:security-group-rule/*"]
+          CreateAndTagOnlyRdsManagedMasterSecret   = ["arn:aws:secretsmanager:us-east-1:123456789012:secret:rds!db-*"]
+          DescribeOnlyAwsManagedDatabaseKeys       = ["arn:aws:kms:us-east-1:123456789012:key/*"]
+          PublishOnlyDatabaseEnvironmentOutputs    = ["arn:aws:s3:::oficina-phase3-artifacts-example/releases/database/${environment}/outputs/*.json"]
+          ReadAndReleaseSharedFoundationLock       = ["arn:aws:s3:::oficina-phase3-state-example/deployment-locks/shared-foundation.json"]
+          AcquireSharedFoundationLockConditionally = ["arn:aws:s3:::oficina-phase3-state-example/deployment-locks/shared-foundation.json"]
+        }[statement.Sid])
+      ])
+    ])
+    error_message = "DB policy must fit the role inline quota and every grant must use the reviewed account, region, exact name/prefix or justified generated-ID scope, with no opposite environment."
+  }
+  assert {
+    condition = alltrue(flatten([for environment in ["staging", "production"] : [
+      for statement in jsondecode(local.executor_permission_profile_documents["db_${environment}"]).statements :
+      alltrue([for tag in ["project", "environment", "owner"] :
+        statement.Condition.StringEquals["aws:RequestTag/${tag}"] == { project = "oficina-phase3", environment = environment, owner = "oficina-db-infra" }[tag]
+      ]) if contains(["CreateNamedDatabaseResources", "CreateTaggedDatabaseGroup", "CreateTaggedDatabaseIngressRules", "TagDatabaseNetworkResourcesOnCreate"], statement.Sid)
+      ]])) && alltrue(flatten([for environment in ["staging", "production"] : [
+      for statement in jsondecode(local.executor_permission_profile_documents["db_${environment}"]).statements :
+      alltrue([for tag in ["project", "environment", "owner"] :
+        statement.Condition.StringEquals["aws:ResourceTag/${tag}"] == { project = "oficina-phase3", environment = environment, owner = "oficina-db-infra" }[tag]
+      ]) if contains(["ManageDatabaseGroupsInReviewedVpc", "ModifyTaggedDatabaseRules", "RetagOnlyOwnedDatabaseNetworkResources"], statement.Sid)
+    ]]))
+    error_message = "DB network creation and management must require project, owner and exact environment tags."
+  }
+  assert {
+    condition = alltrue([for environment in ["staging", "production"] :
+      alltrue([for statement in jsondecode(local.executor_permission_profile_documents["db_${environment}"]).statements :
+        statement.Condition.ArnEquals["ec2:Vpc"] == "arn:aws:ec2:us-east-1:123456789012:vpc/vpc-12345678" if statement.Sid == "ManageDatabaseGroupsInReviewedVpc"
+      ]) &&
+      alltrue([for statement in jsondecode(local.executor_permission_profile_documents["db_${environment}"]).statements :
+        toset(statement.Condition["ForAllValues:StringNotEquals"]["aws:TagKeys"]) == toset(["project", "environment", "owner"]) if statement.Sid == "RetagOnlyOwnedDatabaseNetworkResources"
+      ]) &&
+      alltrue([for statement in jsondecode(local.executor_permission_profile_documents["db_${environment}"]).statements :
+        toset(statement.Condition.StringEquals["ec2:CreateAction"]) == toset(["CreateSecurityGroup", "AuthorizeSecurityGroupIngress"]) if statement.Sid == "TagDatabaseNetworkResourcesOnCreate"
+      ]) &&
+      alltrue([for statement in jsondecode(local.executor_permission_profile_documents["db_${environment}"]).statements :
+        toset(statement.Action) == toset(["secretsmanager:CreateSecret", "secretsmanager:TagResource"]) &&
+        statement.Condition["ForAnyValue:StringEquals"]["aws:CalledVia"] == ["rds.amazonaws.com"] &&
+        statement.Condition.StringEqualsIfExists["aws:RequestTag/aws:rds:primaryDBInstanceArn"] == "arn:aws:rds:us-east-1:123456789012:db:oficina-phase3-${environment}-postgres" &&
+        statement.Condition.StringEqualsIfExists["aws:ResourceTag/aws:rds:primaryDBInstanceArn"] == "arn:aws:rds:us-east-1:123456789012:db:oficina-phase3-${environment}-postgres"
+        if statement.Sid == "CreateAndTagOnlyRdsManagedMasterSecret"
+      ]) &&
+      alltrue([for statement in jsondecode(local.executor_permission_profile_documents["db_${environment}"]).statements :
+        statement.Action == "kms:DescribeKey" && toset(statement.Condition["ForAnyValue:StringEquals"]["kms:ResourceAliases"]) == toset(["alias/aws/rds", "alias/aws/secretsmanager"])
+        if statement.Sid == "DescribeOnlyAwsManagedDatabaseKeys"
+      ]) &&
+      !can(regex("GetSecretValue|PutSecretValue|DeleteSecret|kms:Decrypt|iam:|rds:\\*|ec2:\\*|secretsmanager:\\*|s3:\\*", local.executor_permission_profile_documents["db_${environment}"]))
+    ])
+    error_message = "DB grants must preserve VPC isolation, immutable ownership tags, RDS-only managed-secret integration and alias-limited key metadata without runtime secrets or administrative actions."
+  }
+  assert {
+    condition = alltrue([for environment in ["staging", "production"] :
+      alltrue([for statement in jsondecode(local.codebuild_policies["db_${environment}"]).Statement :
+        statement.Resource == "arn:aws:s3:::oficina-phase3-state-example/database/${environment}.tfstate" &&
+        toset(statement.Action) == toset(["s3:GetObject", "s3:PutObject"]) if statement.Sid == "ReadWriteOnlyItsTerraformState"
+      ]) &&
+      alltrue([for statement in jsondecode(local.codebuild_policies["db_${environment}"]).Statement :
+        statement.Resource == "arn:aws:s3:::oficina-phase3-state-example/database/${environment}.tfstate.tflock" &&
+        toset(statement.Action) == toset(["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]) if statement.Sid == "LockOnlyItsTerraformLockfile"
+      ]) &&
+      alltrue([for statement in jsondecode(local.executor_permission_profile_documents["db_${environment}"]).statements :
+        statement.Action == "s3:PutObject" && statement.Condition.StringEquals["s3:if-none-match"] == "*" if statement.Sid == "AcquireSharedFoundationLockConditionally"
+      ]) &&
+      alltrue([for statement in jsondecode(local.executor_permission_profile_documents["db_${environment}"]).statements :
+        statement.Condition.StringEquals["aws:RequestedRegion"] == "us-east-1" &&
+        toset(statement.Action) == toset(["ec2:DescribeVpcs", "ec2:DescribeSubnets", "ec2:DescribeSecurityGroups", "ec2:DescribeSecurityGroupRules", "rds:DescribeDBEngineVersions", "rds:DescribeOrderableDBInstanceOptions"])
+        if statement.Resource == "*"
+      ])
+    ])
+    error_message = "DB state deletion, broad catalog actions and unconditional shared-lock overwrite must remain unauthorized."
   }
 }
 
