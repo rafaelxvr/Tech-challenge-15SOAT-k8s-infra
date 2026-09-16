@@ -20,3 +20,11 @@ output "load_balancer_controller_irsa_role_arn" { value = aws_iam_role.load_bala
 output "platform_binding_principal_arn" { value = var.platform_binding_principal_arn }
 output "codebuild_projects" { value = module.deployment_executor.codebuild_projects }
 output "deployer_repository_url" { value = module.deployment_executor.ecr_repository_url }
+output "foundation_addons_executor" {
+  value = {
+    projectName = module.foundation_addons_executor.project_name
+    projectArn  = module.foundation_addons_executor.project_arn
+    roleArn     = module.foundation_addons_executor.role_arn
+    stateKey    = module.foundation_addons_executor.state_key
+  }
+}

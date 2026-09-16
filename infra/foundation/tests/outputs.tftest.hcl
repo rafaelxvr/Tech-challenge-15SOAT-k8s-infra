@@ -1,5 +1,4 @@
 mock_provider "aws" {}
-mock_provider "helm" {}
 
 variables {
   aws_region                     = "us-east-1"
@@ -54,8 +53,8 @@ run "foundation_output_schema_is_bounded" {
     error_message = "ALB traffic must be closed by default and allow only VPC-link listeners plus port 8080 to registered pods."
   }
   assert {
-    condition     = helm_release.aws_load_balancer_controller.version == "1.12.0" && helm_release.metrics_server.version == "3.12.2" && helm_release.secrets_store_csi_driver.version == "1.4.8" && helm_release.secrets_store_csi_aws_provider.version == "0.3.9"
-    error_message = "Every required controller must be installed from an exact reviewed chart version."
+    condition     = output.foundation_addons_executor.stateKey == "foundation-addons/terraform.tfstate"
+    error_message = "Foundation must expose the dedicated private executor with its isolated addon state key."
   }
   assert {
     condition     = aws_iam_role.load_balancer_controller.name == "oficina-phase3-aws-load-balancer-controller" && can(regex("RegisterTargets", aws_iam_role_policy.load_balancer_controller.policy)) && can(regex("ModifyTargetGroupAttributes", aws_iam_role_policy.load_balancer_controller.policy)) && aws_eks_access_entry.platform_binding.principal_arn == var.platform_binding_principal_arn && length(keys(output.backend_listener_arns)) == 2

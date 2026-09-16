@@ -1,17 +1,5 @@
 provider "aws" { region = var.aws_region }
 
-provider "helm" {
-  kubernetes {
-    host                   = module.cluster.cluster_endpoint
-    cluster_ca_certificate = base64decode(module.cluster.cluster_certificate_authority_data)
-    exec {
-      api_version = "client.authentication.k8s.io/v1beta1"
-      command     = "aws"
-      args        = ["eks", "get-token", "--region", var.aws_region, "--cluster-name", module.cluster.cluster_name]
-    }
-  }
-}
-
 locals {
   eks_assume_role_policy = jsonencode({
     Version   = "2012-10-17"
@@ -216,100 +204,6 @@ resource "aws_eks_access_entry" "platform_binding" {
   type          = "STANDARD"
 }
 
-resource "helm_release" "aws_load_balancer_controller" {
-  name             = "aws-load-balancer-controller"
-  namespace        = "kube-system"
-  create_namespace = false
-  repository       = "https://aws.github.io/eks-charts"
-  chart            = "aws-load-balancer-controller"
-  version          = "1.12.0"
-  atomic           = true
-  cleanup_on_fail  = true
-  wait             = true
-  timeout          = 600
-  values = [yamlencode({
-    clusterName = module.cluster.cluster_name
-    region      = var.aws_region
-    vpcId       = module.network.vpc_id
-    serviceAccount = {
-      create = true
-      name   = "aws-load-balancer-controller"
-      annotations = {
-        "eks.amazonaws.com/role-arn" = aws_iam_role.load_balancer_controller.arn
-      }
-    }
-    resources = {
-      requests = { cpu = "100m", memory = "128Mi" }
-      limits   = { cpu = "250m", memory = "256Mi" }
-    }
-  })]
-  depends_on = [aws_iam_role_policy.load_balancer_controller, module.cluster]
-}
-
-resource "helm_release" "metrics_server" {
-  name             = "metrics-server"
-  namespace        = "kube-system"
-  create_namespace = false
-  repository       = "https://kubernetes-sigs.github.io/metrics-server/"
-  chart            = "metrics-server"
-  version          = "3.12.2"
-  atomic           = true
-  cleanup_on_fail  = true
-  wait             = true
-  timeout          = 600
-  values = [yamlencode({
-    resources = {
-      requests = { cpu = "50m", memory = "64Mi" }
-      limits   = { cpu = "100m", memory = "128Mi" }
-    }
-  })]
-  depends_on = [module.cluster]
-}
-
-resource "helm_release" "secrets_store_csi_driver" {
-  name             = "secrets-store-csi-driver"
-  namespace        = "kube-system"
-  create_namespace = false
-  repository       = "https://kubernetes-sigs.github.io/secrets-store-csi-driver/charts"
-  chart            = "secrets-store-csi-driver"
-  version          = "1.4.8"
-  atomic           = true
-  cleanup_on_fail  = true
-  wait             = true
-  timeout          = 600
-  values = [yamlencode({
-    syncSecret           = { enabled = true }
-    enableSecretRotation = false
-    linux = {
-      resources = {
-        requests = { cpu = "50m", memory = "64Mi" }
-        limits   = { cpu = "100m", memory = "128Mi" }
-      }
-    }
-  })]
-  depends_on = [module.cluster]
-}
-
-resource "helm_release" "secrets_store_csi_aws_provider" {
-  name             = "secrets-store-csi-driver-provider-aws"
-  namespace        = "kube-system"
-  create_namespace = false
-  repository       = "https://aws.github.io/secrets-store-csi-driver-provider-aws"
-  chart            = "secrets-store-csi-driver-provider-aws"
-  version          = "0.3.9"
-  atomic           = true
-  cleanup_on_fail  = true
-  wait             = true
-  timeout          = 600
-  values = [yamlencode({
-    resources = {
-      requests = { cpu = "50m", memory = "64Mi" }
-      limits   = { cpu = "100m", memory = "128Mi" }
-    }
-  })]
-  depends_on = [helm_release.secrets_store_csi_driver]
-}
-
 resource "aws_security_group" "codebuild" {
   name        = "${var.name}-codebuild"
   description = "Outbound-only group for short-lived private deployment jobs."
@@ -395,4 +289,27 @@ module "deployment_executor" {
   security_group_ids    = [aws_security_group.codebuild.id]
   deployer_image_digest = var.deployer_image_digest
   deployments           = var.deployments
+}
+
+# This executor is intentionally outside the eight application-repository
+# projects. It owns the separate root that applies the reviewed cluster-wide
+# Helm addons through the private EKS endpoint.
+module "foundation_addons_executor" {
+  source                            = "../modules/foundation-addons-executor"
+  name                              = var.name
+  aws_region                        = var.aws_region
+  account_id                        = var.account_id
+  cluster_name                      = module.cluster.cluster_name
+  cluster_arn                       = module.cluster.cluster_arn
+  cluster_endpoint                  = module.cluster.cluster_endpoint
+  cluster_ca_certificate            = module.cluster.cluster_certificate_authority_data
+  vpc_id                            = module.network.vpc_id
+  private_subnet_ids                = module.network.private_subnet_ids
+  security_group_ids                = [aws_security_group.codebuild.id]
+  artifact_bucket_name              = var.artifact_bucket_name
+  state_bucket_name                 = var.state_bucket_name
+  deployer_repository_url           = module.deployment_executor.ecr_repository_url
+  deployer_image_digest             = var.deployer_image_digest
+  vpc_id_for_controller             = module.network.vpc_id
+  load_balancer_controller_role_arn = aws_iam_role.load_balancer_controller.arn
 }
