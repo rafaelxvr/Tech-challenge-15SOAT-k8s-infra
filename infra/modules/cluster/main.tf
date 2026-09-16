@@ -112,8 +112,19 @@ resource "terraform_data" "workers_minimal_update" {
   depends_on = [aws_eks_node_group.workers]
 
   provisioner "local-exec" {
-    interpreter = ["pwsh", "-NoLogo", "-NoProfile", "-File", "${path.module}/scripts/apply-minimal-node-update.ps1"]
-    command     = "-Region ${var.aws_region} -ClusterName ${aws_eks_cluster.this.name} -NodeGroupReleaseVersionsJson '${self.triggers_replace.node_group_release_versions_json}' -UpdateStrategy ${local.node_update_strategy} -MaxUnavailable 1 -MaxPolls ${local.node_update_max_polls}"
+    interpreter = ["pwsh", "-NoLogo", "-NoProfile", "-Command"]
+    # Environment values keep the JSON payload as one PowerShell argument and
+    # avoid shell interpolation when the script is invoked below.
+    command = "& $env:OFICINA_MINIMAL_UPDATE_SCRIPT -Region $env:OFICINA_NODE_UPDATE_REGION -ClusterName $env:OFICINA_NODE_UPDATE_CLUSTER -NodeGroupReleaseVersionsJson $env:OFICINA_NODE_UPDATE_RELEASES_JSON -UpdateStrategy $env:OFICINA_NODE_UPDATE_STRATEGY -MaxUnavailable $env:OFICINA_NODE_UPDATE_MAX_UNAVAILABLE -MaxPolls $env:OFICINA_NODE_UPDATE_MAX_POLLS"
+    environment = {
+      OFICINA_MINIMAL_UPDATE_SCRIPT       = "${path.module}/scripts/apply-minimal-node-update.ps1"
+      OFICINA_NODE_UPDATE_REGION          = var.aws_region
+      OFICINA_NODE_UPDATE_CLUSTER         = aws_eks_cluster.this.name
+      OFICINA_NODE_UPDATE_RELEASES_JSON   = self.triggers_replace.node_group_release_versions_json
+      OFICINA_NODE_UPDATE_STRATEGY        = local.node_update_strategy
+      OFICINA_NODE_UPDATE_MAX_UNAVAILABLE = "1"
+      OFICINA_NODE_UPDATE_MAX_POLLS       = tostring(local.node_update_max_polls)
+    }
   }
 }
 
