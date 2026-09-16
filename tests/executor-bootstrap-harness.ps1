@@ -44,6 +44,20 @@ try {
     $renderedJson = $expression | & terraform "-chdir=$moduleRoot" console -no-color "-var-file=$tfvars" 2>&1
     if ($LASTEXITCODE -ne 0) { Fail "Terraform could not render the CodeBuild buildspec: $($renderedJson -join [Environment]::NewLine)" }
     $renderedBuildspecs = (($renderedJson -join [Environment]::NewLine) | ConvertFrom-Json) | ConvertFrom-Json
+    $prepareTfvarsDirectory = 'mkdir -p "$(dirname "${reviewed_tfvars_path}")"'
+    foreach ($rendered in $renderedBuildspecs.PSObject.Properties) {
+        $lines = @($rendered.Value -split "`r?`n" | ForEach-Object { $_.Trim() })
+        $download = [array]::FindIndex([string[]]$lines, [Predicate[string]]{ param($line) $line.StartsWith('aws s3api get-object') -and $line.Contains('"${TFVARS_OBJECT_KEY}"') })
+        Assert-True ($download -gt 0 -and $lines[$download - 1] -ceq $prepareTfvarsDirectory) "$($rendered.Name) must create the reviewed tfvars parent immediately before its versioned download."
+    }
+    # Exercise the rendered directory-preparation command against a fresh local
+    # path containing spaces. The AWS fixture below must never create parents.
+    $directoryFixture = Join-Path $temp 'fresh parent with spaces/inputs.tfvars.json'
+    $prepareScript = Join-Path $temp 'prepare-tfvars-directory.sh'
+    $prepareSource = 'set -euo pipefail' + "`n" + 'reviewed_tfvars_path=' + (Write-BashSingleQuoted $directoryFixture.Replace('\', '/')) + "`n" + $prepareTfvarsDirectory + "`n" + 'test -d "$(dirname "${reviewed_tfvars_path}")"'
+    Set-Content -LiteralPath $prepareScript -Value $prepareSource -NoNewline
+    & $gitBash $prepareScript
+    Assert-True ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath (Split-Path -Parent $directoryFixture) -PathType Container)) 'Rendered preparation must create a missing parent without losing path quoting.'
     foreach ($environment in @('staging', 'production')) {
         $dbBuildspec = $renderedBuildspecs.PSObject.Properties["db_$environment"].Value
         Assert-True ($deployments["db_$environment"].source_prefix -ceq "releases/database/$environment") "DB $environment source fixture must match the approved database prefix."
@@ -92,7 +106,7 @@ case "$key" in
   "$TFVARS_OBJECT_KEY") source="$HARNESS_TFVARS" ;;
   *) echo "unexpected mock S3 key: $key" >&2; exit 64 ;;
 esac
-mkdir -p "$(dirname "$destination")"
+test -d "$(dirname "$destination")" || { echo 'Download destination parent is missing.' >&2; exit 65; }
 cp "$source" "$destination"
 '@
     Set-Content -LiteralPath (Join-Path $bin 'aws') -NoNewline -Value $awsStub

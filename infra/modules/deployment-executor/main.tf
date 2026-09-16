@@ -435,6 +435,7 @@ locals {
             for variable in TFVARS_OBJECT_KEY TFVARS_VERSION_ID EXPECTED_TFVARS_SHA256; do
               if [ -z "$${!variable:-}" ]; then echo "Required Terraform variables input is missing: $${variable}"; exit 1; fi
             done
+            mkdir -p "$(dirname "$${reviewed_tfvars_path}")"
             aws s3api get-object --bucket "$${SOURCE_BUCKET}" --key "$${TFVARS_OBJECT_KEY}" --version-id "$${TFVARS_VERSION_ID}" "$${reviewed_tfvars_path}" >/dev/null
             actual_tfvars_sha="$(sha256sum "$${reviewed_tfvars_path}" | awk '{print $1}')"
             if [ "$${actual_tfvars_sha}" != "$${EXPECTED_TFVARS_SHA256}" ]; then
