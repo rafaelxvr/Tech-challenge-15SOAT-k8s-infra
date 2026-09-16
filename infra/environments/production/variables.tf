@@ -1,0 +1,10 @@
+variable "aws_region" { type = string }
+variable "name" { type = string }
+variable "vpc_id" { type = string }
+variable "cluster_name" { type = string }
+variable "cluster_security_group_id" { type = string }
+variable "internal_alb_arn" { type = string }
+variable "internal_alb_security_group_id" { type = string }
+variable "vpc_link_id" { type = string }
+variable "vpc_link_security_group_id" { type = string }
+variable "deployer_principal_arn" { type = string }

@@ -1,0 +1,9 @@
+output "api_id" { value = aws_apigatewayv2_api.this.id }
+output "api_endpoint" { value = aws_apigatewayv2_api.this.api_endpoint }
+output "backend_integration_id" { value = aws_apigatewayv2_integration.backend.id }
+output "health_integration_id" { value = aws_apigatewayv2_integration.health.id }
+output "target_group_arn" { value = aws_lb_target_group.app.arn }
+output "listener_arn" { value = aws_lb_listener.backend.arn }
+output "listener_port" { value = var.listener_port }
+output "namespace" { value = var.namespace }
+output "deployer_access_entry_id" { value = aws_eks_access_entry.deployer.id }
