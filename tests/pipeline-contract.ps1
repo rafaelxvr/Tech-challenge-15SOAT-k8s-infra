@@ -15,6 +15,7 @@ function Assert-Throws([scriptblock]$Action, [string]$Message) {
 }
 
 try {
+    & (Join-Path $repoRoot 'tests/cloud-window-tests.ps1') | Out-Null
     & (Join-Path $repoRoot 'tests/executor-bootstrap-harness.ps1') | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'ASSERTION FAILED: rendered CodeBuild bootstrap harness failed.' }
 
@@ -61,6 +62,15 @@ try {
     [ordered]@{ windowStartUtc = $now.AddMinutes(-2).ToString('o'); windowEndUtc = $now.AddMinutes(30).ToString('o'); recordedAtUtc = $now.ToString('o'); accountEvidenceReference = 'reviewed-study-account-evidence'; projectAllowanceUsd = 80; reserveUsd = 20; currentEstimatedSpendUsd = 0 } | ConvertTo-Json | Set-Content -LiteralPath $openEvidence -NoNewline
     & (Join-Path $repoRoot 'scripts/start-deploy.ps1') -Environment staging -SourceZip $bundle -ExpectedSha256 $sourceSha -ReleaseManifest $manifest -ExpectedManifestSha256 $manifestSha -Bucket 'oficina-artifacts-example' -SourcePrefix 'releases/k8s/staging' -ProjectName 'oficina-phase3-oficina-k8s-infra-staging-deploy' -DeployerImageDigest ('b' * 64) -SourceCommit ('a' * 40) -CloudWindowEvidenceFile $openEvidence -TerraformVariablesFile $tfvars -DryRun | Out-Null
     & (Join-Path $repoRoot 'scripts/start-foundation-addons.ps1') -SourceZip $bundle -ExpectedSha256 $sourceSha -Bucket 'oficina-artifacts-example' -SourceCommit ('a' * 40) -CloudWindowEvidenceFile $openEvidence -DryRun | Out-Null
+    $billingEvidence = Join-Path $temp 'billing-window.json'
+    [ordered]@{
+        windowStartUtc = $now.AddMinutes(-2).ToString('o'); windowEndUtc = $now.AddMinutes(30).ToString('o'); recordedAtUtc = $now.ToString('o')
+        accountEvidenceReference = 'reviewed-study-account-evidence'; costAuthorization = 'billing-acknowledgment'
+        environment = 'staging'; scope = 'study-staging'; billingBeyondFreeCreditsAcknowledged = $true
+        approvalReference = 'explicit-study-staging-billing-approval'
+    } | ConvertTo-Json | Set-Content -LiteralPath $billingEvidence -NoNewline
+    & (Join-Path $repoRoot 'scripts/start-deploy.ps1') -Environment staging -SourceZip $bundle -ExpectedSha256 $sourceSha -ReleaseManifest $manifest -ExpectedManifestSha256 $manifestSha -Bucket 'oficina-artifacts-example' -SourcePrefix 'releases/k8s/staging' -ProjectName 'oficina-phase3-oficina-k8s-infra-staging-deploy' -DeployerImageDigest ('b' * 64) -SourceCommit ('a' * 40) -CloudWindowEvidenceFile $billingEvidence -TerraformVariablesFile $tfvars -DryRun | Out-Null
+    & (Join-Path $repoRoot 'scripts/start-foundation-addons.ps1') -SourceZip $bundle -ExpectedSha256 $sourceSha -Bucket 'oficina-artifacts-example' -SourceCommit ('a' * 40) -CloudWindowEvidenceFile $billingEvidence -DryRun | Out-Null
     Assert-Throws { & (Join-Path $repoRoot 'scripts/start-foundation-addons.ps1') -SourceZip $bundle -ExpectedSha256 ('c' * 64) -Bucket 'oficina-artifacts-example' -SourceCommit ('a' * 40) -CloudWindowEvidenceFile $openEvidence -DryRun } 'foundation addons launch must reject a mismatched source digest before AWS calls.'
     & (Join-Path $repoRoot 'scripts/deploy.ps1') -Environment staging -ReleaseManifest $manifest -ExpectedSourceSha256 $sourceSha -ExpectedManifestSha256 $manifestSha -SourceCommit ('a' * 40) -ExpectedDeployerImageDigest ('sha256:' + ('b' * 64)) -TerraformVariablesFile $tfvars -TerraformBackendBucket 'oficina-state-example' -TerraformBackendKey 'environments/staging.tfstate' -TerraformBackendLockKey 'environments/staging.tfstate.tflock' -TerraformBackendRegion 'us-east-1' -DryRun | Out-Null
     $backendOverrideNames = @('TERRAFORM_BACKEND_BUCKET', 'TERRAFORM_BACKEND_KEY', 'TERRAFORM_BACKEND_LOCK_KEY', 'TERRAFORM_BACKEND_REGION')
@@ -106,6 +116,7 @@ try {
     $productionManifestSha = (Get-FileHash -LiteralPath $productionManifest -Algorithm SHA256).Hash.ToLowerInvariant()
     Assert-Throws { & (Join-Path $repoRoot 'scripts/start-deploy.ps1') -Environment production -SourceZip $bundle -ExpectedSha256 $sourceSha -ReleaseManifest $productionManifest -ExpectedManifestSha256 $productionManifestSha -Bucket 'oficina-artifacts-example' -SourcePrefix 'releases/k8s/production' -ProjectName 'oficina-phase3-oficina-k8s-infra-production-deploy' -DeployerImageDigest ('b' * 64) -SourceCommit ('a' * 40) -CloudWindowEvidenceFile $openEvidence -TerraformVariablesFile $tfvars -DryRun } 'production must not launch without a verified staging promotion document.'
     & (Join-Path $repoRoot 'scripts/start-deploy.ps1') -Environment production -SourceZip $bundle -ExpectedSha256 $sourceSha -ReleaseManifest $productionManifest -ExpectedManifestSha256 $productionManifestSha -Bucket 'oficina-artifacts-example' -SourcePrefix 'releases/k8s/production' -ProjectName 'oficina-phase3-oficina-k8s-infra-production-deploy' -DeployerImageDigest ('b' * 64) -SourceCommit ('a' * 40) -CloudWindowEvidenceFile $openEvidence -TerraformVariablesFile $tfvars -VerifiedPromotionFile $verifiedPromotion -DryRun | Out-Null
+    Assert-Throws { & (Join-Path $repoRoot 'scripts/start-deploy.ps1') -Environment production -SourceZip $bundle -ExpectedSha256 $sourceSha -ReleaseManifest $productionManifest -ExpectedManifestSha256 $productionManifestSha -Bucket 'oficina-artifacts-example' -SourcePrefix 'releases/k8s/production' -ProjectName 'oficina-phase3-oficina-k8s-infra-production-deploy' -DeployerImageDigest ('b' * 64) -SourceCommit ('a' * 40) -CloudWindowEvidenceFile $billingEvidence -TerraformVariablesFile $tfvars -VerifiedPromotionFile $verifiedPromotion -DryRun } 'a valid production release must reject staging-only billing acknowledgment.'
     $substituteReceipt = Join-Path $temp 'substitute-receipt.json'
     $substituteReceiptDocument = Get-Content -LiteralPath $verifiedPromotion -Raw | ConvertFrom-Json
     $substituteReceiptDocument.stagingPromotionVersionId = 'different-immutable-version'
@@ -179,4 +190,12 @@ try {
 
     Write-Output 'PASS: pipeline contracts enforce environment gates, immutable artifact checks, cloud window, output filtering, and non-stealable deployment locks.'
 }
-finally { Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue }
+finally {
+    $resolvedTemp = [IO.Path]::GetFullPath($temp)
+    $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
+    if (-not $resolvedTemp.StartsWith($tempRoot, [StringComparison]::OrdinalIgnoreCase) -or
+        -not [IO.Path]::GetFileName($resolvedTemp).StartsWith('oficina-pipeline-contract-')) {
+        throw 'Refusing to remove a directory outside the pipeline test workspace.'
+    }
+    Remove-Item -LiteralPath $resolvedTemp -Recurse -Force -ErrorAction SilentlyContinue
+}

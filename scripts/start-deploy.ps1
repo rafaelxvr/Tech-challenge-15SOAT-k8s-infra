@@ -100,7 +100,7 @@ if ($Environment -eq 'production') {
     }
 }
 
-& (Join-Path $PSScriptRoot 'check-cloud-window.ps1') -EvidenceFile $CloudWindowEvidenceFile | Out-Null
+& (Join-Path $PSScriptRoot 'check-cloud-window.ps1') -EvidenceFile $CloudWindowEvidenceFile -Environment $Environment | Out-Null
 if ($DryRun) {
     Write-Output 'Deployment launch request validated; dry run did not call AWS.'
     exit 0

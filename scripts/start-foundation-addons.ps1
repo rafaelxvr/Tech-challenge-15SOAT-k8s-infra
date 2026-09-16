@@ -16,7 +16,8 @@ function Hash([string]$Path) { (Get-FileHash -LiteralPath $Path -Algorithm SHA25
 
 if (-not (Test-Path -LiteralPath $SourceZip -PathType Leaf)) { Fail 'source zip does not exist.' }
 if ((Hash $SourceZip) -cne $ExpectedSha256) { Fail 'source digest mismatch.' }
-& (Join-Path $PSScriptRoot 'check-cloud-window.ps1') -EvidenceFile $CloudWindowEvidenceFile | Out-Null
+# This prerequisite launcher belongs to the approved staging rehearsal; it cannot authorize production.
+& (Join-Path $PSScriptRoot 'check-cloud-window.ps1') -EvidenceFile $CloudWindowEvidenceFile -Environment staging | Out-Null
 
 $project = 'oficina-phase3-foundation-addons'
 $sourceKey = 'foundation-addons/bundle.zip'
