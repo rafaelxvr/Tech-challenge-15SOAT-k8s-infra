@@ -133,7 +133,7 @@ jobs:
         shell: pwsh
         run: |
           $promotion = Get-Content -LiteralPath "$env:RUNNER_TEMP/verified-staging-promotion.json" -Raw | ConvertFrom-Json
-          $manifest = [ordered]@{ schemaVersion = 1; environment = $env:DEPLOY_ENVIRONMENT; sourceCommit = $env:GITHUB_SHA; artifactSha256 = $env:SOURCE_SHA256; deployerImageDigest = "sha256:$env:DEPLOYER_IMAGE_DIGEST"; contractVersion = 'phase3-v2'; migrationVersion = 'platform-v1'; promotedFromStaging = $true; stagingManifestSha256 = $promotion.stagingManifestSha256; stagingArtifactSha256 = $promotion.stagingArtifactSha256; stagingPromotionSha256 = $promotion.promotionSha256 }
+          $manifest = [ordered]@{ schemaVersion = 1; environment = $env:DEPLOY_ENVIRONMENT; sourceCommit = $env:GITHUB_SHA; artifactSha256 = $env:SOURCE_SHA256; deployerImageDigest = "sha256:$env:DEPLOYER_IMAGE_DIGEST"; contractVersion = 'phase3-v2'; migrationVersion = 'platform-v1'; promotedFromStaging = $true; stagingManifestSha256 = $promotion.stagingManifestSha256; stagingArtifactSha256 = $promotion.stagingArtifactSha256; stagingPromotionSha256 = $promotion.promotionSha256; stagingPromotionKey = $promotion.stagingPromotionKey; stagingPromotionVersionId = $promotion.stagingPromotionVersionId }
           $manifest | ConvertTo-Json | Set-Content -LiteralPath "$env:RUNNER_TEMP/release-manifest.json" -NoNewline
           "MANIFEST_SHA256=$((Get-FileHash -LiteralPath "$env:RUNNER_TEMP/release-manifest.json" -Algorithm SHA256).Hash.ToLowerInvariant())" >> $env:GITHUB_ENV
       - name: Launch and wait for private production executor

@@ -126,7 +126,7 @@ locals {
         commands:
           - |
             set -euo pipefail
-            required=(DEPLOY_ENVIRONMENT SOURCE_BUCKET SOURCE_KEY SOURCE_VERSION_ID EXPECTED_SHA256 RELEASE_MANIFEST_KEY RELEASE_MANIFEST_VERSION_ID EXPECTED_MANIFEST_SHA256 SOURCE_COMMIT DEPLOYER_IMAGE_DIGEST DEPLOYMENT_TFVARS_PATH DEPLOYMENT_MODE)
+            required=(DEPLOY_ENVIRONMENT SOURCE_BUCKET SOURCE_KEY SOURCE_VERSION_ID EXPECTED_SHA256 RELEASE_MANIFEST_KEY RELEASE_MANIFEST_VERSION_ID EXPECTED_MANIFEST_SHA256 SOURCE_COMMIT DEPLOYER_IMAGE_DIGEST DEPLOYMENT_TFVARS_PATH DEPLOYMENT_MODE TERRAFORM_BACKEND_BUCKET TERRAFORM_BACKEND_KEY TERRAFORM_BACKEND_LOCK_KEY TERRAFORM_BACKEND_REGION)
             for variable in "$${required[@]}"; do
               if [ -z "$${!variable:-}" ]; then
                 echo "Required deployment input is missing: $${variable}"
@@ -135,6 +135,10 @@ locals {
             done
             if [ "$${DEPLOYMENT_MODE}" != "plan" ] && [ "$${DEPLOYMENT_MODE}" != "apply" ]; then
               echo 'DEPLOYMENT_MODE must be plan or apply.'
+              exit 1
+            fi
+            if [ "$${TERRAFORM_BACKEND_LOCK_KEY}" != "$${TERRAFORM_BACKEND_KEY}.tflock" ]; then
+              echo 'Terraform backend lock key is not derived from the reviewed state key.'
               exit 1
             fi
             workdir="$(mktemp -d)"
@@ -163,7 +167,7 @@ locals {
             unzip -q "$${workdir}/bundle.zip" -d "$${workdir}/release"
             apply_switch=()
             if [ "$${DEPLOYMENT_MODE}" = "apply" ]; then apply_switch=(-ApplyReviewedPlan); fi
-            pwsh -NoLogo -NoProfile -File "$${workdir}/release/scripts/deploy.ps1" -Environment "$${DEPLOY_ENVIRONMENT}" -ReleaseManifest "$${workdir}/release-manifest.json" -ExpectedSourceSha256 "$${EXPECTED_SHA256}" -ExpectedManifestSha256 "$${EXPECTED_MANIFEST_SHA256}" -SourceCommit "$${SOURCE_COMMIT}" -ExpectedDeployerImageDigest "$${DEPLOYER_IMAGE_DIGEST}" -TerraformVariablesFile "$${DEPLOYMENT_TFVARS_PATH}" "$${apply_switch[@]}"
+            pwsh -NoLogo -NoProfile -File "$${workdir}/release/scripts/deploy.ps1" -Environment "$${DEPLOY_ENVIRONMENT}" -ReleaseManifest "$${workdir}/release-manifest.json" -ExpectedSourceSha256 "$${EXPECTED_SHA256}" -ExpectedManifestSha256 "$${EXPECTED_MANIFEST_SHA256}" -SourceCommit "$${SOURCE_COMMIT}" -ExpectedDeployerImageDigest "$${DEPLOYER_IMAGE_DIGEST}" -TerraformVariablesFile "$${DEPLOYMENT_TFVARS_PATH}" -TerraformBackendBucket "$${TERRAFORM_BACKEND_BUCKET}" -TerraformBackendKey "$${TERRAFORM_BACKEND_KEY}" -TerraformBackendLockKey "$${TERRAFORM_BACKEND_LOCK_KEY}" -TerraformBackendRegion "$${TERRAFORM_BACKEND_REGION}" "$${apply_switch[@]}"
   YAML
 }
 
@@ -228,6 +232,28 @@ resource "aws_codebuild_project" "deploy" {
     environment_variable {
       name  = "DEPLOYMENT_TFVARS_PATH"
       value = each.value.terraform_variables_path
+      type  = "PLAINTEXT"
+    }
+    # These backend values belong to the reviewed CodeBuild project, not the
+    # GitHub launch request. Terraform derives the S3 lock object from key.
+    environment_variable {
+      name  = "TERRAFORM_BACKEND_BUCKET"
+      value = var.state_bucket_name
+      type  = "PLAINTEXT"
+    }
+    environment_variable {
+      name  = "TERRAFORM_BACKEND_KEY"
+      value = each.value.terraform_state_key
+      type  = "PLAINTEXT"
+    }
+    environment_variable {
+      name  = "TERRAFORM_BACKEND_LOCK_KEY"
+      value = "${each.value.terraform_state_key}.tflock"
+      type  = "PLAINTEXT"
+    }
+    environment_variable {
+      name  = "TERRAFORM_BACKEND_REGION"
+      value = var.aws_region
       type  = "PLAINTEXT"
     }
   }

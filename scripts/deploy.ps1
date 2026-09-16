@@ -26,6 +26,22 @@ param(
     [Parameter(Mandatory)]
     [string]$TerraformVariablesFile,
 
+    [Parameter(Mandatory)]
+    [ValidatePattern('^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$')]
+    [string]$TerraformBackendBucket,
+
+    [Parameter(Mandatory)]
+    [ValidatePattern('^[a-z0-9][a-z0-9/_-]*\.tfstate$')]
+    [string]$TerraformBackendKey,
+
+    [Parameter(Mandatory)]
+    [ValidatePattern('^[a-z0-9][a-z0-9/_-]*\.tfstate\.tflock$')]
+    [string]$TerraformBackendLockKey,
+
+    [Parameter(Mandatory)]
+    [ValidatePattern('^[a-z]{2}-[a-z]+-\d+$')]
+    [string]$TerraformBackendRegion,
+
     [ValidatePattern('^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$')]
     [string]$StateBucket,
 
@@ -55,7 +71,11 @@ if ([string](Require $manifest 'artifactSha256') -cne $ExpectedSourceSha256) { F
 if ([string](Require $manifest 'deployerImageDigest') -cne $ExpectedDeployerImageDigest) { Fail 'deployer image digest is not bound by the release manifest.' }
 $null = Require $manifest 'contractVersion'
 $null = Require $manifest 'migrationVersion'
-if ($Environment -eq 'production' -and ($manifest.promotedFromStaging -ne $true -or [string](Require $manifest 'stagingManifestSha256') -notmatch '^[a-f0-9]{64}$' -or [string](Require $manifest 'stagingArtifactSha256') -cne $ExpectedSourceSha256)) { Fail 'production deployment is not backed by the exact staging-tested artifact.' }
+if ($Environment -eq 'production' -and ($manifest.promotedFromStaging -ne $true -or [string](Require $manifest 'stagingManifestSha256') -notmatch '^[a-f0-9]{64}$' -or [string](Require $manifest 'stagingArtifactSha256') -cne $ExpectedSourceSha256 -or [string](Require $manifest 'stagingPromotionSha256') -notmatch '^[a-f0-9]{64}$' -or [string](Require $manifest 'stagingPromotionKey') -notmatch '^releases/k8s/staging/promotions/[a-f0-9]{40}\.json$' -or [string]::IsNullOrWhiteSpace([string](Require $manifest 'stagingPromotionVersionId')))) { Fail 'production deployment is not backed by the exact staging-tested artifact and immutable promotion receipt.' }
+$expectedBackendKey = "environments/$Environment.tfstate"
+if ($TerraformBackendKey -cne $expectedBackendKey) { Fail "Terraform backend key is not the reviewed state key for '$Environment'." }
+if ($TerraformBackendLockKey -cne "$TerraformBackendKey.tflock") { Fail 'Terraform backend lock key is not derived from the reviewed state key.' }
+if ($StateBucket -and $StateBucket -cne $TerraformBackendBucket) { Fail 'shared foundation lock bucket must match the reviewed Terraform backend bucket.' }
 if ($SharedFoundationMutation -and [string]::IsNullOrWhiteSpace($StateBucket)) { Fail 'shared foundation mutations require the reviewed state bucket lock.' }
 if ($DryRun) { Write-Output 'Deployment execution inputs validated; dry run did not run Terraform.'; exit 0 }
 
@@ -70,7 +90,7 @@ try {
         & (Join-Path $PSScriptRoot 'deployment-lock.ps1') -Action Acquire -StateBucket $StateBucket -OwnerToken $ownerToken | Out-Null
         $locked = $true
     }
-    & terraform -chdir=$root init -input=false
+    & terraform -chdir=$root init -input=false "-backend-config=bucket=$TerraformBackendBucket" "-backend-config=key=$TerraformBackendKey" "-backend-config=region=$TerraformBackendRegion" '-backend-config=use_lockfile=true'
     if ($LASTEXITCODE -ne 0) { Fail 'terraform init failed.' }
     & terraform -chdir=$root validate
     if ($LASTEXITCODE -ne 0) { Fail 'terraform validate failed.' }

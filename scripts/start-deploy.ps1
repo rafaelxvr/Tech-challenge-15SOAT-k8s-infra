@@ -88,15 +88,15 @@ if ([string](Require $manifest 'artifactSha256') -cne $ExpectedSha256) { Fail 'r
 if ([string](Require $manifest 'deployerImageDigest') -cne "sha256:$DeployerImageDigest") { Fail 'release manifest does not bind the reviewed deployer image digest.' }
 $null = Require $manifest 'contractVersion'
 $null = Require $manifest 'migrationVersion'
-if ($Environment -eq 'production' -and ($manifest.promotedFromStaging -ne $true -or [string](Require $manifest 'stagingManifestSha256') -notmatch '^[a-f0-9]{64}$' -or [string](Require $manifest 'stagingArtifactSha256') -cne $ExpectedSha256)) {
-    Fail 'production must consume the exact staging-tested artifact and promotion manifest.'
+if ($Environment -eq 'production' -and ($manifest.promotedFromStaging -ne $true -or [string](Require $manifest 'stagingManifestSha256') -notmatch '^[a-f0-9]{64}$' -or [string](Require $manifest 'stagingArtifactSha256') -cne $ExpectedSha256 -or [string](Require $manifest 'stagingPromotionSha256') -notmatch '^[a-f0-9]{64}$' -or [string](Require $manifest 'stagingPromotionKey') -notmatch '^releases/k8s/staging/promotions/[a-f0-9]{40}\.json$' -or [string]::IsNullOrWhiteSpace([string](Require $manifest 'stagingPromotionVersionId')))) {
+    Fail 'production must consume the exact staging-tested artifact and immutable promotion receipt.'
 }
 if ($Environment -eq 'production') {
     if (-not (Test-Path -LiteralPath $VerifiedPromotionFile -PathType Leaf)) { Fail 'production requires a locally verified staging promotion document.' }
     try { $verifiedPromotion = Get-Content -LiteralPath $VerifiedPromotionFile -Raw | ConvertFrom-Json }
     catch { Fail 'verified staging promotion document is not valid JSON.' }
-    if ($verifiedPromotion.schemaVersion -ne 1 -or [string]$verifiedPromotion.verifiedBy -cne 'verify-staging-promotion.ps1' -or [string]$verifiedPromotion.stagingArtifactSha256 -cne $ExpectedSha256 -or [string]$verifiedPromotion.stagingManifestSha256 -cne [string]$manifest.stagingManifestSha256) {
-        Fail 'production promotion document does not prove the exact staging artifact and manifest.'
+    if ($verifiedPromotion.schemaVersion -ne 1 -or [string]$verifiedPromotion.verifiedBy -cne 'verify-staging-promotion.ps1' -or [string]$verifiedPromotion.stagingArtifactSha256 -cne $ExpectedSha256 -or [string]$verifiedPromotion.stagingManifestSha256 -cne [string]$manifest.stagingManifestSha256 -or [string]$verifiedPromotion.promotionSha256 -cne [string]$manifest.stagingPromotionSha256 -or [string]$verifiedPromotion.stagingPromotionKey -cne [string]$manifest.stagingPromotionKey -or [string]$verifiedPromotion.stagingPromotionVersionId -cne [string]$manifest.stagingPromotionVersionId) {
+        Fail 'production promotion document does not prove the exact staging artifact, manifest, and immutable receipt identity.'
     }
 }
 

@@ -45,11 +45,15 @@ run "eight_bounded_private_deployers" {
     error_message = "Every deployer must consume the platform ECR image by immutable digest."
   }
   assert {
-    condition = alltrue([for project in values(aws_codebuild_project.deploy) :
+    condition = alltrue([for key, project in aws_codebuild_project.deploy :
       contains([for variable in project.environment[0].environment_variable : variable.name], "DEPLOYMENT_TFVARS_PATH") &&
-      contains([for variable in project.environment[0].environment_variable : variable.name], "DEPLOYMENT_MODE")
+      contains([for variable in project.environment[0].environment_variable : variable.name], "DEPLOYMENT_MODE") &&
+      one([for variable in project.environment[0].environment_variable : variable.value if variable.name == "TERRAFORM_BACKEND_BUCKET"]) == var.state_bucket_name &&
+      one([for variable in project.environment[0].environment_variable : variable.value if variable.name == "TERRAFORM_BACKEND_KEY"]) == var.deployments[key].terraform_state_key &&
+      one([for variable in project.environment[0].environment_variable : variable.value if variable.name == "TERRAFORM_BACKEND_LOCK_KEY"]) == "${var.deployments[key].terraform_state_key}.tflock" &&
+      one([for variable in project.environment[0].environment_variable : variable.value if variable.name == "TERRAFORM_BACKEND_REGION"]) == var.aws_region
     ])
-    error_message = "Every executor must declare its trusted tfvars path and deployment mode in project configuration."
+    error_message = "Every executor must declare its trusted deployment inputs and exact Terraform state backend in project configuration."
   }
   assert {
     condition = alltrue([

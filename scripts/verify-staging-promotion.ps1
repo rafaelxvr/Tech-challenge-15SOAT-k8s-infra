@@ -81,7 +81,8 @@ try {
 
     $verified = [ordered]@{
         schemaVersion = 1; verifiedBy = 'verify-staging-promotion.ps1'; verifiedAtUtc = [datetime]::UtcNow.ToString('o')
-        promotionSha256 = $ExpectedPromotionSha256; stagingArtifactSha256 = $ExpectedArtifactSha256; stagingSourceCommit = $sourceCommit
+        promotionSha256 = $ExpectedPromotionSha256; stagingPromotionKey = $PromotionKey; stagingPromotionVersionId = $PromotionVersionId
+        stagingArtifactSha256 = $ExpectedArtifactSha256; stagingSourceCommit = $sourceCommit
         stagingManifestKey = $manifestKey; stagingManifestVersionId = $manifestVersion; stagingManifestSha256 = $manifestSha
     }
     $parent = Split-Path -Parent $OutputFile
