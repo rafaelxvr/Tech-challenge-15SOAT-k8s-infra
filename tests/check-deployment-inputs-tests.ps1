@@ -111,6 +111,8 @@ try {
     Assert-Rejected 'unreviewed-foundation-addons-target' $wrongAddonsTarget
     $wrongAddonsLauncher = $addonsLauncher.Clone(); $wrongAddonsLauncher.launchers = @($addonsLauncher.launchers[0].Clone()); $wrongAddonsLauncher.launchers[0].name = 'other-staging'
     Assert-Rejected 'unreviewed-foundation-addons-launcher' $wrongAddonsLauncher
+    $wrongAddonsRepository = $addonsLauncher.Clone(); $wrongAddonsRepository.launchers = @($addonsLauncher.launchers[0].Clone()); $wrongAddonsRepository.launchers[0].repository = 'another-owner/Tech-challenge-15SOAT-k8s-infra'; $wrongAddonsRepository.launchers[0].githubSubject = 'repo:another-owner/Tech-challenge-15SOAT-k8s-infra:environment:staging'
+    Assert-Rejected 'unreviewed-foundation-addons-repository' $wrongAddonsRepository
 
     $wrongSubject = $valid.Clone(); $wrongSubject.launchers = @($valid.launchers[0].Clone()); $wrongSubject.launchers[0].githubSubject = 'repo:example/oficina-k8s-infra:pull_request'
     Assert-Rejected 'wrong-subject' $wrongSubject

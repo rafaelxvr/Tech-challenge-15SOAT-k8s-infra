@@ -182,6 +182,25 @@ run "rejects_foundation_addons_from_another_launcher" {
   expect_failures = [var.launchers]
 }
 
+run "rejects_foundation_addons_from_another_repository" {
+  command = plan
+
+  variables {
+    launchers = {
+      k8s-staging = {
+        repository                        = "another-owner/Tech-challenge-15SOAT-k8s-infra"
+        environment                       = "staging"
+        branch                            = "develop"
+        source_prefix                     = "releases/k8s/staging"
+        codebuild_project_arn             = "arn:aws:codebuild:us-east-1:123456789012:project/oficina-k8s-staging"
+        additional_codebuild_project_arns = ["arn:aws:codebuild:us-east-1:123456789012:project/oficina-phase3-foundation-addons"]
+      }
+    }
+  }
+
+  expect_failures = [var.launchers]
+}
+
 run "rejects_oidc_provider_from_another_account" {
   command = plan
 
