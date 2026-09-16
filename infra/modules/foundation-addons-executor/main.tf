@@ -32,7 +32,8 @@ locals {
         commands:
           - set -euo pipefail
           - required=(ADDONS_SOURCE_BUCKET ADDONS_SOURCE_KEY ADDONS_SOURCE_VERSION_ID ADDONS_EXPECTED_SHA256 ADDONS_MANIFEST_KEY ADDONS_MANIFEST_VERSION_ID ADDONS_EXPECTED_MANIFEST_SHA256 ADDONS_SOURCE_COMMIT)
-          - for variable in "$${required[@]}"; do test -n "$${!variable:-}" || { echo "Missing reviewed addon input: $${variable}"; exit 1; }; done
+          - |
+            for variable in "$${required[@]}"; do test -n "$${!variable:-}" || { echo "Missing reviewed addon input: $${variable}"; exit 1; }; done
           - workdir="$$(mktemp -d)"; export WORKDIR="$${workdir}"; trap 'rm -rf "$${workdir}"' EXIT
           - aws s3api get-object --bucket "$${ADDONS_SOURCE_BUCKET}" --key "$${ADDONS_SOURCE_KEY}" --version-id "$${ADDONS_SOURCE_VERSION_ID}" "$${workdir}/bundle.zip" >/dev/null
           - test "$$(sha256sum "$${workdir}/bundle.zip" | awk '{print $1}')" = "$${ADDONS_EXPECTED_SHA256}"
