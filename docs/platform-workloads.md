@@ -7,15 +7,24 @@ The renderer requires immutable image and infrastructure-reference inputs. It re
 ```powershell
 ./scripts/render-platform.ps1 -Environment staging `
   -Image 'ACCOUNT.dkr.ecr.us-east-1.amazonaws.com/oficina-app@sha256:DIGEST' `
-  -TargetGroupArn 'arn:aws:elasticloadbalancing:us-east-1:ACCOUNT:targetgroup/NAME/ID' `
   -AppIrsaRoleArn 'arn:aws:iam::ACCOUNT:role/oficina-app-staging' `
   -DeployerPrincipalArn 'arn:aws:iam::ACCOUNT:role/oficina-k8s-staging-deploy' `
-  -DbHost 'DATABASE_ENDPOINT' -DbCidr 'DATABASE_SUBNET_CIDR' -VpcCidr 'VPC_CIDR' `
+  -PlatformBindingPrincipalArn 'arn:aws:iam::ACCOUNT:role/oficina-platform-binding' `
+  -DbHost 'DATABASE_ENDPOINT' -DbCidr 'DATABASE_SUBNET_CIDR' `
+  -AlbSubnetCidrOne 'ALB_SUBNET_ONE_CIDR' -AlbSubnetCidrTwo 'ALB_SUBNET_TWO_CIDR' `
   -AppSecretArn 'arn:aws:secretsmanager:us-east-1:ACCOUNT:secret:oficina/staging/app-EXAMPLE' `
   -OutputDirectory .rendered
 ```
 
 The foundation creates the shared internal ALB, VPC link and fixed 503 listeners. The platform Terraform module creates the per-environment IP target group, one catch-all forwarding listener rule, HTTP API/integrations and exact EKS access entry. Environment roots receive those fields as an allowlisted `foundation_outputs` contract, not independent manually copied IDs. Terraform never attaches individual targets; the pinned AWS Load Balancer Controller does that through `TargetGroupBinding` after the stable Service exists.
+
+The application-release role cannot read, create or mutate `TargetGroupBinding`. A separate reviewed `platform_binding_principal_arn` has a namespace-local, name-limited binding role and is the only principal permitted to apply `k8s/platform/binding/target-group-binding.yaml`. Render it separately after the stable Service exists; the renderer rejects a target-group ARN whose `oficina-<environment>` name does not match the selected namespace.
+
+```powershell
+./scripts/render-target-group-binding.ps1 -Environment staging `
+  -TargetGroupArn 'arn:aws:elasticloadbalancing:us-east-1:ACCOUNT:targetgroup/oficina-staging/ID' `
+  -OutputDirectory .rendered
+```
 
 Every namespace begins with ingress/egress deny. App ingress is limited to the two ALB source subnet CIDRs, same-environment app pods and metrics-server. It cannot admit arbitrary VPC pod traffic, so staging app pods cannot reach production app pods on port 8080. Egress permits CoreDNS, the supplied database CIDR on TCP 5432 and HTTPS for approved AWS services. Standard Kubernetes `NetworkPolicy` cannot identify AWS services by FQDN, so HTTPS egress remains additionally bounded by environment IRSA, private-subnet routing and AWS security groups. `namespace-isolation.ps1 -Run` uses the deployed `oficina-staging`/`oficina-production` policies and an app-labeled probe, and refuses a non-Cilium cluster. R4 must verify the result using live endpoints; this document does not claim FQDN-level filtering.
 

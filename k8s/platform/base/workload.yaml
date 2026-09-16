@@ -125,13 +125,3 @@ spec:
           type: Utilization
           averageUtilization: 60
 ---
-apiVersion: elbv2.k8s.aws/v1beta1
-kind: TargetGroupBinding
-metadata:
-  name: oficina-app
-spec:
-  serviceRef:
-    name: oficina-app
-    port: 8080
-  targetGroupARN: ${TARGET_GROUP_ARN}
-  targetType: ip

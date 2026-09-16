@@ -181,8 +181,8 @@ resource "aws_iam_role" "load_balancer_controller" {
 }
 
 # TargetGroupBinding is the only supported controller path. It may discover
-# VPC resources and register/deregister IP targets in tagged target groups; it
-# has no IAM permission to create listeners, load balancers or target groups.
+# VPC resources and maintain targets/health attributes in tagged target groups;
+# it has no IAM permission to create listeners, load balancers or target groups.
 resource "aws_iam_role_policy" "load_balancer_controller" {
   name = "target-group-binding-only"
   role = aws_iam_role.load_balancer_controller.id
@@ -198,7 +198,7 @@ resource "aws_iam_role_policy" "load_balancer_controller" {
       {
         Sid      = "RegisterOnlyTaggedPlatformTargets"
         Effect   = "Allow"
-        Action   = ["elasticloadbalancing:RegisterTargets", "elasticloadbalancing:DeregisterTargets"]
+        Action   = ["elasticloadbalancing:RegisterTargets", "elasticloadbalancing:DeregisterTargets", "elasticloadbalancing:ModifyTargetGroup", "elasticloadbalancing:ModifyTargetGroupAttributes"]
         Resource = "arn:aws:elasticloadbalancing:${var.aws_region}:*:targetgroup/*"
         Condition = { StringEquals = {
           "aws:ResourceTag/project" = "oficina-phase3"
@@ -206,6 +206,14 @@ resource "aws_iam_role_policy" "load_balancer_controller" {
       }
     ]
   })
+}
+
+# A separate reviewed platform role applies the immutable target-group binding.
+# Application release roles never receive this EKS access entry or its RBAC.
+resource "aws_eks_access_entry" "platform_binding" {
+  cluster_name  = module.cluster.cluster_name
+  principal_arn = var.platform_binding_principal_arn
+  type          = "STANDARD"
 }
 
 resource "helm_release" "aws_load_balancer_controller" {

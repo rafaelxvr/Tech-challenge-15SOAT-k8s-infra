@@ -10,9 +10,9 @@ $tempDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ("oficina-capacity-
 try {
     $common = @{
         Image                = '123456789012.dkr.ecr.us-east-1.amazonaws.com/oficina-app@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
-        TargetGroupArn       = 'arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/oficina/1234567890abcdef'
         AppIrsaRoleArn       = 'arn:aws:iam::123456789012:role/oficina-app'
         DeployerPrincipalArn = 'arn:aws:iam::123456789012:role/oficina-k8s-deploy'
+        PlatformBindingPrincipalArn = 'arn:aws:iam::123456789012:role/oficina-platform-binding'
         DbHost               = 'db.oficina.internal'
         DbCidr               = '10.20.0.0/24'
         AlbSubnetCidrOne     = '10.42.0.0/24'

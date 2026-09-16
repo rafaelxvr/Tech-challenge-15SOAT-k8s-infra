@@ -28,6 +28,8 @@ foreach ($request in @('cpu = "100m", memory = "128Mi"', 'cpu = "50m", memory = 
 Assert-Contains $policy 'oficina.io/environment: ${ENVIRONMENT}' 'Actual app policy must allow only its own namespace label.'
 Assert-Contains $policy '${ALB_SUBNET_CIDR_ONE}' 'Actual app policy must permit the first ALB source subnet only.'
 Assert-Contains $policy '${ALB_SUBNET_CIDR_TWO}' 'Actual app policy must permit the second ALB source subnet only.'
+Assert-Contains $foundation '"elasticloadbalancing:ModifyTargetGroup"' 'TargetGroupBinding controller needs target health configuration permission.'
+Assert-Contains $foundation '"elasticloadbalancing:ModifyTargetGroupAttributes"' 'TargetGroupBinding controller needs target attribute configuration permission.'
 if ($policy.Contains('${VPC_CIDR}')) { throw 'Actual app policy must not permit every source in the VPC.' }
 if ($foundation -match 'secret_string|secret_binary') { throw 'Platform foundation must not store secret values in Terraform.' }
 

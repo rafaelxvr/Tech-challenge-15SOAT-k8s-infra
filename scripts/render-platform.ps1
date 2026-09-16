@@ -4,9 +4,9 @@ param(
     [ValidateSet('staging', 'production')]
     [string]$Environment,
     [Parameter(Mandatory)] [string]$Image,
-    [Parameter(Mandatory)] [string]$TargetGroupArn,
     [Parameter(Mandatory)] [string]$AppIrsaRoleArn,
     [Parameter(Mandatory)] [string]$DeployerPrincipalArn,
+    [Parameter(Mandatory)] [string]$PlatformBindingPrincipalArn,
     [Parameter(Mandatory)] [string]$DbHost,
     [Parameter(Mandatory)] [string]$DbCidr,
     [Parameter(Mandatory)] [string]$AlbSubnetCidrOne,
@@ -19,8 +19,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 if ($Image -notmatch '@sha256:[a-f0-9]{64}$') { throw 'Image must be pinned to a lowercase SHA-256 digest.' }
-if ($TargetGroupArn -notmatch '^arn:aws:elasticloadbalancing:us-east-1:[0-9]{12}:targetgroup/.+$') { throw 'TargetGroupArn must be a us-east-1 target-group ARN.' }
-foreach ($arn in @($AppIrsaRoleArn, $DeployerPrincipalArn)) {
+foreach ($arn in @($AppIrsaRoleArn, $DeployerPrincipalArn, $PlatformBindingPrincipalArn)) {
     if ($arn -notmatch '^arn:aws:iam::[0-9]{12}:role/.+$') { throw 'IRSA and deployer inputs must be IAM role ARNs.' }
 }
 if ($AppSecretArn -notmatch '^arn:aws:secretsmanager:us-east-1:[0-9]{12}:secret:.+$') { throw 'AppSecretArn must be a Secrets Manager ARN.' }
@@ -36,9 +35,9 @@ if ($LASTEXITCODE -ne 0) { throw 'kubectl kustomize failed.' }
 
 $tokens = [ordered]@{
     '${APP_IMAGE}'               = $Image
-    '${TARGET_GROUP_ARN}'        = $TargetGroupArn
     '${APP_IRSA_ROLE_ARN}'       = $AppIrsaRoleArn
     '${DEPLOYER_PRINCIPAL_ARN}'  = $DeployerPrincipalArn
+    '${PLATFORM_BINDING_PRINCIPAL_ARN}' = $PlatformBindingPrincipalArn
     '${DB_HOST}'                 = $DbHost
     '${DB_CIDR}'                 = $DbCidr
     '${ALB_SUBNET_CIDR_ONE}'     = $AlbSubnetCidrOne

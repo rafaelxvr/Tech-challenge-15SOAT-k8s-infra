@@ -7,9 +7,9 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $renderer = Join-Path $repoRoot 'scripts/render-platform.ps1'
 $tempDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ("oficina-platform-test-" + [guid]::NewGuid())
 $image = '123456789012.dkr.ecr.us-east-1.amazonaws.com/oficina-app@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
-$targetGroup = 'arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/oficina-staging/1234567890abcdef'
 $role = 'arn:aws:iam::123456789012:role/oficina-app-staging'
 $deployer = 'arn:aws:iam::123456789012:role/oficina-k8s-staging-deploy'
+$platformBinder = 'arn:aws:iam::123456789012:role/oficina-platform-binding'
 $secret = 'arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/staging/app-AbCdEf'
 
 function Assert-Contains([string]$Text, [string]$Expected, [string]$Message) {
@@ -18,7 +18,7 @@ function Assert-Contains([string]$Text, [string]$Expected, [string]$Message) {
 
 try {
     foreach ($environment in @('staging', 'production')) {
-        $file = & $renderer -Environment $environment -Image $image -TargetGroupArn $targetGroup -AppIrsaRoleArn $role -DeployerPrincipalArn $deployer -DbHost 'db.oficina.internal' -DbCidr '10.20.0.0/24' -AlbSubnetCidrOne '10.42.0.0/24' -AlbSubnetCidrTwo '10.42.1.0/24' -AppSecretArn $secret -OutputDirectory $tempDirectory
+        $file = & $renderer -Environment $environment -Image $image -AppIrsaRoleArn $role -DeployerPrincipalArn $deployer -PlatformBindingPrincipalArn $platformBinder -DbHost 'db.oficina.internal' -DbCidr '10.20.0.0/24' -AlbSubnetCidrOne '10.42.0.0/24' -AlbSubnetCidrTwo '10.42.1.0/24' -AppSecretArn $secret -OutputDirectory $tempDirectory
         $manifest = Get-Content -LiteralPath $file -Raw
         if ($manifest -match '\$\{[A-Z_]+\}') { throw "Rendered $environment manifest still has deployment tokens." }
         Assert-Contains $manifest "name: oficina-$environment" "Expected isolated $environment namespace."
@@ -31,7 +31,6 @@ try {
         Assert-Contains $manifest '/api/actuator/health/readiness' 'Readiness and target health must use the readiness group.'
         Assert-Contains $manifest 'SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE' 'Hikari must remain capped at five connections.'
         Assert-Contains $manifest 'value: "5"' 'Hikari max must be five.'
-        Assert-Contains $manifest 'targetGroupARN: arn:aws:elasticloadbalancing' 'TargetGroupBinding must consume only the platform target group.'
         Assert-Contains $manifest 'default-deny-ingress-egress' 'Namespace needs default deny ingress and egress.'
         Assert-Contains $manifest 'port: 5432' 'App network policy must restrict database traffic to PostgreSQL.'
         Assert-Contains $manifest ('oficina.io/environment: ' + $environment) 'App traffic must allow only the same environment namespace.'

@@ -25,6 +25,14 @@ variable "vpc_cni_addon_version" { type = string }
 variable "coredns_addon_version" { type = string }
 variable "deployer_image_digest" { type = string }
 variable "kubernetes_repository" { type = string }
+variable "platform_binding_principal_arn" {
+  type        = string
+  description = "Dedicated reviewed IAM role used only by the trusted platform binding step; it is never an application release role."
+  validation {
+    condition     = can(regex("^arn:aws:iam::[0-9]{12}:role/.+$", var.platform_binding_principal_arn))
+    error_message = "platform_binding_principal_arn must be the reviewed dedicated IAM role ARN."
+  }
+}
 variable "deployments" {
   type = map(object({
     repository    = string

@@ -15,5 +15,6 @@ output "vpc_link_security_group_id" { value = aws_security_group.vpc_link.id }
 output "backend_listener_arns" { value = { for environment, listener in aws_lb_listener.backend : environment => listener.arn } }
 output "alb_subnet_cidrs" { value = var.public_subnet_cidrs }
 output "load_balancer_controller_irsa_role_arn" { value = aws_iam_role.load_balancer_controller.arn }
+output "platform_binding_principal_arn" { value = var.platform_binding_principal_arn }
 output "codebuild_projects" { value = module.deployment_executor.codebuild_projects }
 output "deployer_repository_url" { value = module.deployment_executor.ecr_repository_url }
