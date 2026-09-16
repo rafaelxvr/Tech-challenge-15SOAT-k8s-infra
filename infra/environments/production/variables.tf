@@ -14,7 +14,7 @@ variable "foundation_outputs" {
     backend_listener_arns = map(string)
     codebuild_projects    = map(object({ roleArn = string }))
   })
-  description = "The allowlisted foundation outputs.v1.json values, injected by the verified deployment workflow."
+  description = "The allowlisted foundation outputs.v1.json values resolved from the versioned foundation receipt by the verified deployment workflow."
 }
 variable "functions_outputs" {
   type = object({

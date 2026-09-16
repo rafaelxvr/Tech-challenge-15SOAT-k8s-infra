@@ -47,12 +47,14 @@ Only the mappings in [`contracts/outputs-allowlist.json`](../contracts/outputs-a
 
 | Scope | Published fields | Consumer boundary |
 | --- | --- | --- |
-| `foundation` | `vpcId`, `privateSubnetIds`, `databaseSubnetIds`, `clusterName`, `clusterOidcProviderArn`, `codeBuildProjects` | Platform and private deployment executors. |
+| `foundation` | `vpcId`, `privateSubnetIds`, `databaseSubnetIds`, `clusterName`, `clusterOidcProviderArn`, `vpcLinkId`, `backendListenerArns`, `codeBuildProjects` | Platform and private deployment executors. |
 | `environment` | `apiId`, `backendIntegrationId`, `healthIntegrationId`, `targetGroupArn`, `listenerArn`, `namespace` | Functions, the stable application Service/target binding, and rollout checks. |
 
 The exporter rejects field names or Terraform output names containing `secret`, `password`, `credential`, `token`, `state`, or `master`. It does not publish raw Terraform state, database credentials, cloud-window evidence, private key material, or secret values. `alertTopicArn` is not part of the I1–I7 Kubernetes output artifact; monitoring outputs are added only with the R2 owner implementation and its reviewed contract.
 
-Consumers must validate `schemaVersion`, `environment`, `sourceCommit`, and their expected fields before use. An output document identifies the producing source commit; it is not a successful deployment attestation.
+After a reviewed foundation apply, its distinct foundation execution identity receives only the exported `foundation_output_publisher_policy_arn`. It runs `scripts/publish-foundation-outputs.ps1`, which exports the allowlist, writes it to `releases/k8s/foundation/outputs/{sourceCommit}.json`, and records the returned S3 `VersionId` and SHA-256 in a foundation-output receipt. Kubernetes staging/production launchers receive read-only access to that prefix. Their protected GitHub environment stores the reviewed receipt JSON as `FOUNDATION_OUTPUT_RECEIPT_JSON`; `scripts/resolve-foundation-outputs.ps1` retrieves the exact named version, verifies the receipt digest/schema/environment/source commit, and is the only path that adds `foundation_outputs` to the uploaded platform tfvars. The base tfvars file is rejected if it already supplies `foundation_outputs`.
+
+Consumers must validate `schemaVersion`, `environment`, `sourceCommit`, and their expected fields before use. An output document identifies the producing source commit; it is not a successful deployment attestation. R4 preserves the foundation receipt's bucket, key, `VersionId`, SHA-256, source commit, and the resulting platform tfvars SHA-256 with each platform deployment record.
 
 ## Ordered release handoff
 

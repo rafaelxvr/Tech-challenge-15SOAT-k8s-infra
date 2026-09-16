@@ -8,6 +8,8 @@
       "databaseSubnetIds": "database_subnet_ids",
       "clusterName": "cluster_name",
       "clusterOidcProviderArn": "cluster_oidc_provider_arn",
+      "vpcLinkId": "vpc_link_id",
+      "backendListenerArns": "backend_listener_arns",
       "codeBuildProjects": "codebuild_projects"
     },
     "environment": {

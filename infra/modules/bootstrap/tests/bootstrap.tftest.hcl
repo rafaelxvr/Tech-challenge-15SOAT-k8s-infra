@@ -93,6 +93,15 @@ run "trust_subjects_are_environment_scoped" {
     )
     error_message = "The parsed launcher IAM policy must deny only mode and tfvars StartBuild environment overrides on its exact project."
   }
+
+  assert {
+    condition = (
+      one([for statement in jsondecode(local.launcher_permission_policies["k8s_staging"]).Statement : statement if statement.Sid == "ReadOnlyVersionedFoundationOutputArtifact"]).Effect == "Allow" &&
+      toset(one([for statement in jsondecode(local.launcher_permission_policies["k8s_staging"]).Statement : statement if statement.Sid == "ReadOnlyVersionedFoundationOutputArtifact"]).Action) == toset(["s3:GetObject", "s3:GetObjectVersion"]) &&
+      one([for statement in jsondecode(local.launcher_permission_policies["k8s_staging"]).Statement : statement if statement.Sid == "ReadOnlyVersionedFoundationOutputArtifact"]).Resource == "${aws_s3_bucket.artifact.arn}/releases/k8s/foundation/outputs/*"
+    )
+    error_message = "Kubernetes launchers may read only the immutable foundation output prefix."
+  }
 }
 
 run "rejects_wrong_branch_for_environment" {

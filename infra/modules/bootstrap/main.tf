@@ -60,7 +60,16 @@ locals {
             }
           }
         }
-        ], launcher.environment == "production" ? [
+        ], startswith(launcher.source_prefix, "releases/k8s/") ? [
+        # Platform launches consume a single immutable foundation-output
+        # artifact. It is separate from the launcher's writable source prefix.
+        {
+          Sid      = "ReadOnlyVersionedFoundationOutputArtifact"
+          Effect   = "Allow"
+          Action   = ["s3:GetObject", "s3:GetObjectVersion"]
+          Resource = "${aws_s3_bucket.artifact.arn}/releases/k8s/foundation/outputs/*"
+        }
+        ] : [], launcher.environment == "production" ? [
         {
           Sid    = "ReadOnlySameRepositoryStagingPromotionEvidence"
           Effect = "Allow"
@@ -99,6 +108,15 @@ locals {
       ]
     })
   }
+  foundation_output_publisher_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid      = "PublishOnlyVersionedFoundationOutputs"
+      Effect   = "Allow"
+      Action   = "s3:PutObject"
+      Resource = "${aws_s3_bucket.artifact.arn}/releases/k8s/foundation/outputs/*"
+    }]
+  })
 }
 
 resource "aws_s3_bucket" "state" {
@@ -205,6 +223,11 @@ resource "aws_iam_policy" "state_access" {
   for_each = var.state_keys
   name     = "oficina-state-${each.key}-access"
   policy   = local.state_access_policies[each.key]
+}
+
+resource "aws_iam_policy" "foundation_output_publisher" {
+  name   = "oficina-foundation-output-publisher"
+  policy = local.foundation_output_publisher_policy
 }
 
 resource "terraform_data" "role_separation" {

@@ -21,6 +21,7 @@ jobs:
         shell: pwsh
         run: |
           ./tests/pipeline-contract.ps1
+          ./tests/release-readiness-contract.ps1
           ./tests/gateway-contract-tests.ps1
           ./tests/functions-contract.ps1
       - name: Verify Terraform formatting
@@ -44,6 +45,7 @@ jobs:
       SOURCE_PREFIX: ${{ vars.SOURCE_PREFIX }}
       CODEBUILD_PROJECT: ${{ vars.CODEBUILD_PROJECT }}
       DEPLOYER_IMAGE_DIGEST: ${{ vars.DEPLOYER_IMAGE_DIGEST }}
+      FOUNDATION_OUTPUT_RECEIPT_JSON: ${{ vars.FOUNDATION_OUTPUT_RECEIPT_JSON }}
       CLOUD_WINDOW_EVIDENCE_JSON: ${{ secrets.CLOUD_WINDOW_EVIDENCE_JSON }}
       TERRAFORM_TFVARS_JSON: ${{ secrets.TERRAFORM_TFVARS_JSON }}
     steps:
@@ -52,7 +54,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          required=(ARTIFACT_BUCKET SOURCE_PREFIX CODEBUILD_PROJECT DEPLOYER_IMAGE_DIGEST CLOUD_WINDOW_EVIDENCE_JSON TERRAFORM_TFVARS_JSON)
+          required=(ARTIFACT_BUCKET SOURCE_PREFIX CODEBUILD_PROJECT DEPLOYER_IMAGE_DIGEST FOUNDATION_OUTPUT_RECEIPT_JSON CLOUD_WINDOW_EVIDENCE_JSON TERRAFORM_TFVARS_JSON)
           for variable in "${required[@]}"; do
             test -n "${!variable:-}" || { echo "Missing reviewed environment configuration: ${variable}"; exit 1; }
           done
@@ -75,9 +77,13 @@ jobs:
         shell: pwsh
         run: |
           $evidence = Join-Path $env:RUNNER_TEMP 'cloud-window.json'
+          $baseTfvars = Join-Path $env:RUNNER_TEMP 'terraform.tfvars.base.json'
+          $foundationReceipt = Join-Path $env:RUNNER_TEMP 'foundation-output-receipt.json'
           $tfvars = Join-Path $env:RUNNER_TEMP 'terraform.tfvars.json'
           Set-Content -LiteralPath $evidence -NoNewline -Value $env:CLOUD_WINDOW_EVIDENCE_JSON
-          Set-Content -LiteralPath $tfvars -NoNewline -Value $env:TERRAFORM_TFVARS_JSON
+          Set-Content -LiteralPath $baseTfvars -NoNewline -Value $env:TERRAFORM_TFVARS_JSON
+          Set-Content -LiteralPath $foundationReceipt -NoNewline -Value $env:FOUNDATION_OUTPUT_RECEIPT_JSON
+          ./scripts/resolve-foundation-outputs.ps1 -ArtifactBucket $env:ARTIFACT_BUCKET -ReceiptFile $foundationReceipt -BaseTerraformVariablesFile $baseTfvars -OutputTerraformVariablesFile $tfvars
           ./scripts/start-deploy.ps1 -Environment staging -SourceZip "$env:RUNNER_TEMP/bundle.zip" -ExpectedSha256 $env:SOURCE_SHA256 -ReleaseManifest "$env:RUNNER_TEMP/release-manifest.json" -ExpectedManifestSha256 $env:MANIFEST_SHA256 -Bucket $env:ARTIFACT_BUCKET -SourcePrefix $env:SOURCE_PREFIX -ProjectName $env:CODEBUILD_PROJECT -DeployerImageDigest $env:DEPLOYER_IMAGE_DIGEST -SourceCommit $env:GITHUB_SHA -CloudWindowEvidenceFile $evidence -TerraformVariablesFile $tfvars -PromotionEvidenceOutputFile "$env:RUNNER_TEMP/staging-promotion-receipt.json"
 
   deploy-production:
@@ -98,6 +104,7 @@ jobs:
       SOURCE_PREFIX: ${{ vars.SOURCE_PREFIX }}
       CODEBUILD_PROJECT: ${{ vars.CODEBUILD_PROJECT }}
       DEPLOYER_IMAGE_DIGEST: ${{ vars.DEPLOYER_IMAGE_DIGEST }}
+      FOUNDATION_OUTPUT_RECEIPT_JSON: ${{ vars.FOUNDATION_OUTPUT_RECEIPT_JSON }}
       STAGING_PROMOTION_KEY: ${{ vars.STAGING_PROMOTION_KEY }}
       STAGING_PROMOTION_VERSION_ID: ${{ vars.STAGING_PROMOTION_VERSION_ID }}
       STAGING_PROMOTION_SHA256: ${{ vars.STAGING_PROMOTION_SHA256 }}
@@ -109,7 +116,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          required=(ARTIFACT_BUCKET SOURCE_PREFIX CODEBUILD_PROJECT DEPLOYER_IMAGE_DIGEST STAGING_PROMOTION_KEY STAGING_PROMOTION_VERSION_ID STAGING_PROMOTION_SHA256 CLOUD_WINDOW_EVIDENCE_JSON TERRAFORM_TFVARS_JSON)
+          required=(ARTIFACT_BUCKET SOURCE_PREFIX CODEBUILD_PROJECT DEPLOYER_IMAGE_DIGEST FOUNDATION_OUTPUT_RECEIPT_JSON STAGING_PROMOTION_KEY STAGING_PROMOTION_VERSION_ID STAGING_PROMOTION_SHA256 CLOUD_WINDOW_EVIDENCE_JSON TERRAFORM_TFVARS_JSON)
           for variable in "${required[@]}"; do
             test -n "${!variable:-}" || { echo "Missing reviewed environment configuration: ${variable}"; exit 1; }
           done
@@ -140,7 +147,11 @@ jobs:
         shell: pwsh
         run: |
           $evidence = Join-Path $env:RUNNER_TEMP 'cloud-window.json'
+          $baseTfvars = Join-Path $env:RUNNER_TEMP 'terraform.tfvars.base.json'
+          $foundationReceipt = Join-Path $env:RUNNER_TEMP 'foundation-output-receipt.json'
           $tfvars = Join-Path $env:RUNNER_TEMP 'terraform.tfvars.json'
           Set-Content -LiteralPath $evidence -NoNewline -Value $env:CLOUD_WINDOW_EVIDENCE_JSON
-          Set-Content -LiteralPath $tfvars -NoNewline -Value $env:TERRAFORM_TFVARS_JSON
+          Set-Content -LiteralPath $baseTfvars -NoNewline -Value $env:TERRAFORM_TFVARS_JSON
+          Set-Content -LiteralPath $foundationReceipt -NoNewline -Value $env:FOUNDATION_OUTPUT_RECEIPT_JSON
+          ./scripts/resolve-foundation-outputs.ps1 -ArtifactBucket $env:ARTIFACT_BUCKET -ReceiptFile $foundationReceipt -BaseTerraformVariablesFile $baseTfvars -OutputTerraformVariablesFile $tfvars
           ./scripts/start-deploy.ps1 -Environment production -SourceZip "$env:RUNNER_TEMP/bundle.zip" -ExpectedSha256 $env:SOURCE_SHA256 -ReleaseManifest "$env:RUNNER_TEMP/release-manifest.json" -ExpectedManifestSha256 $env:MANIFEST_SHA256 -Bucket $env:ARTIFACT_BUCKET -SourcePrefix $env:SOURCE_PREFIX -ProjectName $env:CODEBUILD_PROJECT -DeployerImageDigest $env:DEPLOYER_IMAGE_DIGEST -SourceCommit $env:GITHUB_SHA -CloudWindowEvidenceFile $evidence -TerraformVariablesFile $tfvars -VerifiedPromotionFile "$env:RUNNER_TEMP/verified-staging-promotion.json"

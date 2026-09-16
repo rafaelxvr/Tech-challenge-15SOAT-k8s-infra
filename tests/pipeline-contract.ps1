@@ -122,6 +122,9 @@ try {
     Assert-Contains $workflow 'environment: staging' 'staging must use the protected GitHub environment.'
     Assert-Contains $workflow 'environment: production' 'production must use the protected GitHub environment.'
     Assert-Contains $workflow 'verify-staging-promotion.ps1' 'production must verify a named staging release before launch.'
+    Assert-Contains $workflow 'release-readiness-contract.ps1' 'pull requests must execute the release-readiness contract.'
+    Assert-Contains $workflow 'FOUNDATION_OUTPUT_RECEIPT_JSON' 'platform deployments must receive a protected foundation-output receipt.'
+    Assert-Contains $workflow 'resolve-foundation-outputs.ps1' 'platform deployments must resolve verified foundation outputs before tfvars upload.'
     Assert-Contains $workflow 'stagingPromotionVersionId = $promotion.stagingPromotionVersionId' 'production manifests must bind the immutable staging promotion version.'
     Assert-Contains $workflow 'cancel-in-progress: false' 'deployments must not cancel a running state mutation.'
     Assert-Contains $workflow 'id-token: write' 'release jobs must use short-lived OIDC.'
@@ -155,6 +158,8 @@ try {
     Assert-Contains $bootstrap 'codebuild:source.buildspec' 'the launcher must use the CodeBuild buildspec override condition key.'
     Assert-Contains $bootstrap 'DenyDeploymentControlOverrides' 'the launcher must deny deployment-control environment overrides.'
     Assert-Contains $bootstrap 'codebuild:environment.environmentVariables.name' 'the launcher must constrain CodeBuild environment override names.'
+    Assert-Contains $bootstrap 'ReadOnlyVersionedFoundationOutputArtifact' 'Kubernetes launchers must read only the versioned foundation-output prefix.'
+    Assert-Contains $bootstrap 'PublishOnlyVersionedFoundationOutputs' 'foundation publication must be restricted to its immutable artifact prefix.'
     $deploy = Get-Content -LiteralPath (Join-Path $repoRoot 'scripts/deploy.ps1') -Raw
     Assert-Contains $deploy '-out=$plan' 'Terraform must produce a reviewed plan before apply.'
     Assert-Contains $deploy 'apply -input=false $plan' 'Terraform may apply only its reviewed plan file.'

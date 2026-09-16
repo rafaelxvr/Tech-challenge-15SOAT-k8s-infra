@@ -14,6 +14,11 @@ function Assert-Contains([string]$Text, [string]$Needle, [string]$Message) {
     Assert-True $Text.Contains($Needle) $Message
 }
 
+function Assert-Throws([scriptblock]$Action, [string]$Message) {
+    try { & $Action } catch { return }
+    throw "ASSERTION FAILED: $Message"
+}
+
 function Get-TerraformOutputNames([string]$Path) {
     return @(Select-String -LiteralPath $Path -Pattern '^output\s+"([^"]+)"' | ForEach-Object { $_.Matches[0].Groups[1].Value })
 }
@@ -56,7 +61,8 @@ Assert-True ($allowlist.repository -eq 'oficina-k8s-infra') 'output allowlist mu
 $expectedMappings = [ordered]@{
     foundation = [ordered]@{
         vpcId = 'vpc_id'; privateSubnetIds = 'private_subnet_ids'; databaseSubnetIds = 'database_subnet_ids'
-        clusterName = 'cluster_name'; clusterOidcProviderArn = 'cluster_oidc_provider_arn'; codeBuildProjects = 'codebuild_projects'
+        clusterName = 'cluster_name'; clusterOidcProviderArn = 'cluster_oidc_provider_arn'; vpcLinkId = 'vpc_link_id'
+        backendListenerArns = 'backend_listener_arns'; codeBuildProjects = 'codebuild_projects'
     }
     environment = [ordered]@{
         apiId = 'api_id'; backendIntegrationId = 'backend_integration_id'; healthIntegrationId = 'health_integration_id'
@@ -89,5 +95,58 @@ foreach ($scope in $expectedMappings.Keys) {
     $expectedNames = @($expectedMappings[$scope].Keys | Sort-Object)
     Assert-True (($actualNames -join ',') -eq ($expectedNames -join ',')) "allowlist '$scope' must not add an undocumented output."
 }
+
+$temp = Join-Path ([System.IO.Path]::GetTempPath()) ("oficina-foundation-output-roundtrip-" + [guid]::NewGuid())
+try {
+    New-Item -ItemType Directory -Path $temp -Force | Out-Null
+    $commit = 'a' * 40
+    $rawTerraformOutput = Join-Path $temp 'foundation-terraform-output.json'
+    @{
+        vpc_id = @{ value = 'vpc-123' }
+        private_subnet_ids = @{ value = @('subnet-private-a', 'subnet-private-b') }
+        database_subnet_ids = @{ value = @('subnet-db-a', 'subnet-db-b') }
+        cluster_name = @{ value = 'oficina-phase3' }
+        cluster_oidc_provider_arn = @{ value = 'arn:aws:iam::123456789012:oidc-provider/oidc.eks.us-east-1.amazonaws.com/id/example' }
+        vpc_link_id = @{ value = 'abc123' }
+        backend_listener_arns = @{ value = @{ staging = 'arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/oficina-phase3-internal/staging'; production = 'arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/oficina-phase3-internal/production' } }
+        codebuild_projects = @{ value = @{ k8s_staging = @{ roleArn = 'arn:aws:iam::123456789012:role/k8s-staging' }; k8s_production = @{ roleArn = 'arn:aws:iam::123456789012:role/k8s-production' } } }
+    } | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $rawTerraformOutput -NoNewline
+    $receipt = Join-Path $temp 'foundation-output-receipt.json'
+    $offline = Join-Path $temp 'offline-artifact-store'
+    & (Join-Path $repoRoot 'scripts/publish-foundation-outputs.ps1') -TerraformOutputFile $rawTerraformOutput -SourceCommit $commit -ArtifactBucket 'oficina-artifacts-example' -ReceiptFile $receipt -Offline -OfflineDirectory $offline | Out-Null
+    $publishedReceipt = Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
+    Assert-True ($publishedReceipt.artifactKey -eq "releases/k8s/foundation/outputs/$commit.json" -and $publishedReceipt.artifactVersionId -match '^offline-' -and $publishedReceipt.artifactSha256 -match '^[a-f0-9]{64}$') 'publication must retain exact foundation key, immutable version, and digest evidence.'
+    $baseTfvars = Join-Path $temp 'base.tfvars.json'
+    @{ aws_region = 'us-east-1'; name = 'oficina-phase3'; functions_outputs = @{ functionArns = @{ authorizer = 'arn:aws:lambda:us-east-1:123456789012:function:authorizer'; challenge = 'arn:aws:lambda:us-east-1:123456789012:function:challenge'; verification = 'arn:aws:lambda:us-east-1:123456789012:function:verification' } }; gateway_allowed_origins = @('https://example.test') } | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $baseTfvars -NoNewline
+    $resolvedTfvars = Join-Path $temp 'resolved.tfvars.json'
+    & (Join-Path $repoRoot 'scripts/resolve-foundation-outputs.ps1') -ArtifactBucket 'oficina-artifacts-example' -ReceiptFile $receipt -BaseTerraformVariablesFile $baseTfvars -OutputTerraformVariablesFile $resolvedTfvars -OfflineDirectory $offline | Out-Null
+    $resolved = Get-Content -LiteralPath $resolvedTfvars -Raw | ConvertFrom-Json
+    Assert-True ($resolved.foundation_outputs.vpc_id -eq 'vpc-123' -and $resolved.foundation_outputs.vpc_link_id -eq 'abc123' -and $resolved.foundation_outputs.backend_listener_arns.staging -match '/staging$' -and $resolved.foundation_outputs.backend_listener_arns.production -match '/production$' -and $resolved.foundation_outputs.codebuild_projects.k8s_staging.roleArn -match ':role/k8s-staging$') 'verified foundation outputs must produce the exact platform foundation_outputs shape.'
+
+    $wrongVersionReceipt = Join-Path $temp 'wrong-version-receipt.json'
+    $wrongVersion = Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
+    $wrongVersion.artifactVersionId = 'offline-version-that-does-not-exist'
+    $wrongVersion | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $wrongVersionReceipt -NoNewline
+    Assert-Throws { & (Join-Path $repoRoot 'scripts/resolve-foundation-outputs.ps1') -ArtifactBucket 'oficina-artifacts-example' -ReceiptFile $wrongVersionReceipt -BaseTerraformVariablesFile $baseTfvars -OutputTerraformVariablesFile $resolvedTfvars -OfflineDirectory $offline } 'a receipt with a different immutable artifact version must be rejected.'
+
+    $artifactFile = Join-Path (Join-Path $offline 'versions') "$($publishedReceipt.artifactVersionId).json"
+    Set-Content -LiteralPath $artifactFile -NoNewline -Value '{"schemaVersion":1,"environment":"foundation","sourceCommit":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","outputs":{}}'
+    Assert-Throws { & (Join-Path $repoRoot 'scripts/resolve-foundation-outputs.ps1') -ArtifactBucket 'oficina-artifacts-example' -ReceiptFile $receipt -BaseTerraformVariablesFile $baseTfvars -OutputTerraformVariablesFile $resolvedTfvars -OfflineDirectory $offline } 'a tampered foundation artifact must fail its receipt digest check.'
+
+    $schemaReceipt = Join-Path $temp 'schema-receipt.json'
+    $schema = Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
+    $schema.artifactSha256 = (Get-FileHash -LiteralPath $artifactFile -Algorithm SHA256).Hash.ToLowerInvariant()
+    $schema | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $schemaReceipt -NoNewline
+    Assert-Throws { & (Join-Path $repoRoot 'scripts/resolve-foundation-outputs.ps1') -ArtifactBucket 'oficina-artifacts-example' -ReceiptFile $schemaReceipt -BaseTerraformVariablesFile $baseTfvars -OutputTerraformVariablesFile $resolvedTfvars -OfflineDirectory $offline } 'an artifact with a missing allowlisted platform input must be rejected after digest verification.'
+
+    $wrongScopeArtifact = Join-Path $temp 'wrong-scope.json'
+    @{ schemaVersion = 1; environment = 'staging'; sourceCommit = $commit; outputs = @{ vpcId = 'vpc-123'; clusterName = 'oficina-phase3'; vpcLinkId = 'abc123'; backendListenerArns = @{ staging = 'listener-staging'; production = 'listener-production' }; codeBuildProjects = @{ k8s_staging = @{ roleArn = 'role-staging' }; k8s_production = @{ roleArn = 'role-production' } } } } | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $wrongScopeArtifact -NoNewline
+    $wrongScopeReceipt = Join-Path $temp 'wrong-scope-receipt.json'
+    $wrongScope = Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
+    $wrongScope.artifactSha256 = (Get-FileHash -LiteralPath $wrongScopeArtifact -Algorithm SHA256).Hash.ToLowerInvariant()
+    $wrongScope | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $wrongScopeReceipt -NoNewline
+    Assert-Throws { & (Join-Path $repoRoot 'scripts/resolve-foundation-outputs.ps1') -ArtifactBucket 'oficina-artifacts-example' -ReceiptFile $wrongScopeReceipt -BaseTerraformVariablesFile $baseTfvars -OutputTerraformVariablesFile $resolvedTfvars -ArtifactFileForTest $wrongScopeArtifact } 'a non-foundation artifact must not supply platform foundation_outputs.'
+}
+finally { Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue }
 
 Write-Output 'PASS: release-readiness handoff matches the reviewed protection, output, ordering, and acceptance boundaries.'

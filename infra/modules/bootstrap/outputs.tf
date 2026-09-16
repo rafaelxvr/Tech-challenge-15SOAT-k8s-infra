@@ -27,3 +27,8 @@ output "state_access_policy_arns" {
   value       = { for name, policy in aws_iam_policy.state_access : name => policy.arn }
   description = "Unattached, per-root state and lockfile policies for the dedicated human/deployment identity."
 }
+
+output "foundation_output_publisher_policy_arn" {
+  value       = aws_iam_policy.foundation_output_publisher.arn
+  description = "Unattached policy for the reviewed foundation execution identity to publish only versioned foundation output artifacts."
+}
