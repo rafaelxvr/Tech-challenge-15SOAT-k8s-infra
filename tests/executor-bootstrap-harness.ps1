@@ -23,8 +23,8 @@ try {
     $deployments = @{
         k8s_staging          = @{ repository = 'oficina-k8s-infra'; environment = 'staging'; source_prefix = 'releases/k8s/staging'; terraform_state_key = 'environments/staging.tfstate'; deployment_mode = 'plan'; terraform_variables_path = '/tmp/oficina/k8s_staging.tfvars.json' }
         k8s_production       = @{ repository = 'oficina-k8s-infra'; environment = 'production'; source_prefix = 'releases/k8s/production'; terraform_state_key = 'environments/production.tfstate'; deployment_mode = 'plan'; terraform_variables_path = '/tmp/oficina/k8s_production.tfvars.json' }
-        db_staging           = @{ repository = 'oficina-db-infra'; environment = 'staging'; source_prefix = 'releases/db/staging'; terraform_state_key = 'db/staging.tfstate'; deployment_mode = 'plan'; terraform_variables_path = '/tmp/oficina/db_staging.tfvars.json' }
-        db_production        = @{ repository = 'oficina-db-infra'; environment = 'production'; source_prefix = 'releases/db/production'; terraform_state_key = 'db/production.tfstate'; deployment_mode = 'plan'; terraform_variables_path = '/tmp/oficina/db_production.tfvars.json' }
+        db_staging           = @{ repository = 'oficina-db-infra'; environment = 'staging'; source_prefix = 'releases/database/staging'; terraform_state_key = 'database/staging.tfstate'; deployment_mode = 'plan'; terraform_variables_path = '/tmp/oficina/database_staging.tfvars.json' }
+        db_production        = @{ repository = 'oficina-db-infra'; environment = 'production'; source_prefix = 'releases/database/production'; terraform_state_key = 'database/production.tfstate'; deployment_mode = 'plan'; terraform_variables_path = '/tmp/oficina/database_production.tfvars.json' }
         functions_staging    = @{ repository = 'oficina-functions'; environment = 'staging'; source_prefix = 'releases/functions/staging'; terraform_state_key = 'functions/staging.tfstate'; deployment_mode = 'plan'; terraform_variables_path = '/tmp/oficina/functions_staging.tfvars.json' }
         functions_production = @{ repository = 'oficina-functions'; environment = 'production'; source_prefix = 'releases/functions/production'; terraform_state_key = 'functions/production.tfstate'; deployment_mode = 'plan'; terraform_variables_path = '/tmp/oficina/functions_production.tfvars.json' }
         app_staging          = @{ repository = 'oficina-app'; environment = 'staging'; source_prefix = 'releases/app/staging'; terraform_state_key = 'app/staging.tfstate'; deployment_mode = 'plan'; terraform_variables_path = '/tmp/oficina/app_staging.tfvars.json' }
@@ -40,11 +40,18 @@ try {
     }
     $tfvars = Join-Path $temp 'executor.tfvars.json'
     $variables | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $tfvars -NoNewline
-    $expression = 'jsonencode(local.rendered_deployment_buildspecs["k8s_staging"])'
+    $expression = 'jsonencode(local.rendered_deployment_buildspecs)'
     $renderedJson = $expression | & terraform "-chdir=$moduleRoot" console -no-color "-var-file=$tfvars" 2>&1
     if ($LASTEXITCODE -ne 0) { Fail "Terraform could not render the CodeBuild buildspec: $($renderedJson -join [Environment]::NewLine)" }
-    $buildspec = ($renderedJson -join [Environment]::NewLine) | ConvertFrom-Json
-    if ($buildspec.StartsWith('"')) { $buildspec = $buildspec | ConvertFrom-Json }
+    $renderedBuildspecs = (($renderedJson -join [Environment]::NewLine) | ConvertFrom-Json) | ConvertFrom-Json
+    foreach ($environment in @('staging', 'production')) {
+        $dbBuildspec = $renderedBuildspecs.PSObject.Properties["db_$environment"].Value
+        Assert-True ($deployments["db_$environment"].source_prefix -ceq "releases/database/$environment") "DB $environment source fixture must match the approved database prefix."
+        Assert-True ($dbBuildspec.Contains("reviewed_backend_key=`"database/$environment.tfstate`"")) "DB $environment bootstrap must use the approved database state key."
+        Assert-True ($dbBuildspec.Contains("reviewed_backend_lock_key=`"database/$environment.tfstate.tflock`"")) "DB $environment bootstrap must use its derived database lock key."
+        Assert-True ($dbBuildspec.Contains("reviewed_tfvars_path=`"/tmp/oficina/database_$environment.tfvars.json`"")) "DB $environment bootstrap must use the approved trusted tfvars path."
+    }
+    $buildspec = $renderedBuildspecs.k8s_staging
     Assert-True ($buildspec -match 'reviewed_backend_key="environments/staging\.tfstate"') 'Terraform did not render the staging backend key into the CodeBuild buildspec.'
 
     $buildspecLines = $buildspec -split "`r?`n"

@@ -16,8 +16,8 @@ variables {
   deployments = {
     k8s_staging          = { repository = "oficina-k8s-infra", environment = "staging", source_prefix = "releases/k8s/staging", terraform_state_key = "environments/staging.tfstate", deployment_mode = "plan", terraform_variables_path = "/tmp/oficina/k8s_staging.tfvars.json" }
     k8s_production       = { repository = "oficina-k8s-infra", environment = "production", source_prefix = "releases/k8s/production", terraform_state_key = "environments/production.tfstate", deployment_mode = "plan", terraform_variables_path = "/tmp/oficina/k8s_production.tfvars.json" }
-    db_staging           = { repository = "oficina-db-infra", environment = "staging", source_prefix = "releases/db/staging", terraform_state_key = "db/staging.tfstate", deployment_mode = "plan", terraform_variables_path = "/tmp/oficina/db_staging.tfvars.json" }
-    db_production        = { repository = "oficina-db-infra", environment = "production", source_prefix = "releases/db/production", terraform_state_key = "db/production.tfstate", deployment_mode = "plan", terraform_variables_path = "/tmp/oficina/db_production.tfvars.json" }
+    db_staging           = { repository = "oficina-db-infra", environment = "staging", source_prefix = "releases/database/staging", terraform_state_key = "database/staging.tfstate", deployment_mode = "plan", terraform_variables_path = "/tmp/oficina/database_staging.tfvars.json" }
+    db_production        = { repository = "oficina-db-infra", environment = "production", source_prefix = "releases/database/production", terraform_state_key = "database/production.tfstate", deployment_mode = "plan", terraform_variables_path = "/tmp/oficina/database_production.tfvars.json" }
     functions_staging    = { repository = "oficina-functions", environment = "staging", source_prefix = "releases/functions/staging", terraform_state_key = "functions/staging.tfstate", deployment_mode = "plan", terraform_variables_path = "/tmp/oficina/functions_staging.tfvars.json" }
     functions_production = { repository = "oficina-functions", environment = "production", source_prefix = "releases/functions/production", terraform_state_key = "functions/production.tfstate", deployment_mode = "plan", terraform_variables_path = "/tmp/oficina/functions_production.tfvars.json" }
     app_staging          = { repository = "oficina-app", environment = "staging", source_prefix = "releases/app/staging", terraform_state_key = "app/staging.tfstate", deployment_mode = "plan", terraform_variables_path = "/tmp/oficina/app_staging.tfvars.json" }
@@ -27,6 +27,15 @@ variables {
 
 run "eight_bounded_private_deployers" {
   command = plan
+  assert {
+    condition = alltrue([for environment in ["staging", "production"] :
+      aws_codebuild_project.deploy["db_${environment}"].source[0].location == "${var.artifact_bucket_name}/releases/database/${environment}/bundle.zip" &&
+      strcontains(local.rendered_deployment_buildspecs["db_${environment}"], "reviewed_backend_key=\"database/${environment}.tfstate\"") &&
+      strcontains(local.rendered_deployment_buildspecs["db_${environment}"], "reviewed_backend_lock_key=\"database/${environment}.tfstate.tflock\"") &&
+      strcontains(local.rendered_deployment_buildspecs["db_${environment}"], "reviewed_tfvars_path=\"/tmp/oficina/database_${environment}.tfvars.json\"")
+    ])
+    error_message = "Both DB executors must match the approved database source, state/lock and trusted tfvars contract."
+  }
   override_resource {
     target          = aws_ecr_repository.deployer
     override_during = plan
@@ -151,8 +160,8 @@ run "rejects_duplicate_environment_for_a_repository" {
     deployments = {
       k8s_staging           = { repository = "oficina-k8s-infra", environment = "staging", source_prefix = "releases/k8s/staging", terraform_state_key = "environments/staging.tfstate", deployment_mode = "plan", terraform_variables_path = "/tmp/oficina/k8s_staging.tfvars.json" }
       k8s_production        = { repository = "oficina-k8s-infra", environment = "production", source_prefix = "releases/k8s/production", terraform_state_key = "environments/production.tfstate", deployment_mode = "plan", terraform_variables_path = "/tmp/oficina/k8s_production.tfvars.json" }
-      db_staging            = { repository = "oficina-db-infra", environment = "staging", source_prefix = "releases/db/staging", terraform_state_key = "db/staging.tfstate", deployment_mode = "plan", terraform_variables_path = "/tmp/oficina/db_staging.tfvars.json" }
-      db_production         = { repository = "oficina-db-infra", environment = "production", source_prefix = "releases/db/production", terraform_state_key = "db/production.tfstate", deployment_mode = "plan", terraform_variables_path = "/tmp/oficina/db_production.tfvars.json" }
+      db_staging            = { repository = "oficina-db-infra", environment = "staging", source_prefix = "releases/database/staging", terraform_state_key = "database/staging.tfstate", deployment_mode = "plan", terraform_variables_path = "/tmp/oficina/database_staging.tfvars.json" }
+      db_production         = { repository = "oficina-db-infra", environment = "production", source_prefix = "releases/database/production", terraform_state_key = "database/production.tfstate", deployment_mode = "plan", terraform_variables_path = "/tmp/oficina/database_production.tfvars.json" }
       functions_staging     = { repository = "oficina-functions", environment = "staging", source_prefix = "releases/functions/staging", terraform_state_key = "functions/staging.tfstate", deployment_mode = "plan", terraform_variables_path = "/tmp/oficina/functions_staging.tfvars.json" }
       functions_production  = { repository = "oficina-functions", environment = "production", source_prefix = "releases/functions/production", terraform_state_key = "functions/production.tfstate", deployment_mode = "plan", terraform_variables_path = "/tmp/oficina/functions_production.tfvars.json" }
       app_staging           = { repository = "oficina-app", environment = "staging", source_prefix = "releases/app/staging", terraform_state_key = "app/staging.tfstate", deployment_mode = "plan", terraform_variables_path = "/tmp/oficina/app_staging.tfvars.json" }
