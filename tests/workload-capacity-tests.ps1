@@ -18,10 +18,14 @@ try {
         AlbSubnetCidrOne     = '10.42.0.0/24'
         AlbSubnetCidrTwo     = '10.42.1.0/24'
         AppSecretArn         = 'arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/app-AbCdEf'
+        NewRelicIngestSecretArn = 'arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/staging/newrelic-ingest-AbCdEf'
+        NewRelicAccountId    = '1234567'
         OutputDirectory      = $tempDirectory
     }
     $stagingFile = & $renderer -Environment staging @common
-    $productionFile = & $renderer -Environment production @common
+    $productionInputs = @{} + $common
+    $productionInputs.NewRelicIngestSecretArn = $common.NewRelicIngestSecretArn -replace '/staging/', '/production/'
+    $productionFile = & $renderer -Environment production @productionInputs
     $staging = Get-Content -LiteralPath $stagingFile -Raw
     $production = Get-Content -LiteralPath $productionFile -Raw
 

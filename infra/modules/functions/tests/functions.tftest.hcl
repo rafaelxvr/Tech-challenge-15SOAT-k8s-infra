@@ -28,6 +28,16 @@ variables {
   ses_sandbox_mode            = true
   approved_secret_count       = 16
   planned_monthly_invocations = { challenge = 100, verification = 100, authorizer = 1000, notification = 100 }
+  newrelic_function_instrumentation = {
+    for key in ["challenge", "verification", "authorizer", "notification"] : key => {
+      function_name                      = "oficina-phase3-staging-${key}"
+      layers                             = ["arn:aws:lambda:us-east-1:451483290750:layer:NewRelicJava17:42", "arn:aws:lambda:us-east-1:451483290750:layer:NewRelicExtension:18"]
+      environment                        = { NEW_RELIC_LAMBDA_EXTENSION_ENABLED = "true", NEW_RELIC_LAMBDA_EXTENSION_LOGS_ENABLED = "true", NEW_RELIC_APPLICATION_LOGGING_FORWARDING_ENABLED = "false", NEW_RELIC_LICENSE_KEY_SECRET = "arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/staging/newrelic-ingest-AbCdEf" }
+      log_forwarder                      = "newrelic-extension"
+      cloudwatch_subscription_filter_arn = ""
+    }
+  }
+  newrelic_extension_secret_access_policy_json = "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"secretsmanager:GetSecretValue\"],\"Resource\":[\"arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/staging/newrelic-ingest-AbCdEf\"]}]}"
 }
 
 override_resource {
@@ -97,6 +107,14 @@ run "all_functions_have_short_logs_tracing_and_pinned_jar" {
       aws_lambda_function.function["notification"].handler == "com.oficina.functions.handler.NotificacaoHandler::handleRequest"
     )
     error_message = "The one shaded JAR must expose all four reviewed handler entry points."
+  }
+}
+
+run "functions_consume_fun_owned_newrelic_delivery_contract" {
+  command = apply
+  assert {
+    condition     = alltrue([for key, function in aws_lambda_function.function : function.layers == var.newrelic_function_instrumentation[key].layers && function.environment[0].variables.OFICINA_ENVIRONMENT == var.environment && function.environment[0].variables.NEW_RELIC_LAMBDA_EXTENSION_ENABLED == "true" && function.environment[0].variables.NEW_RELIC_LAMBDA_EXTENSION_LOGS_ENABLED == "true" && function.environment[0].variables.NEW_RELIC_APPLICATION_LOGGING_FORWARDING_ENABLED == "false" && function.environment[0].variables.NEW_RELIC_LICENSE_KEY_SECRET == var.newrelic_function_instrumentation[key].environment.NEW_RELIC_LICENSE_KEY_SECRET]) && alltrue([for policy in values(aws_iam_role_policy.function) : strcontains(policy.policy, "newrelic-ingest-AbCdEf") && strcontains(policy.policy, "secretsmanager:GetSecretValue")])
+    error_message = "Every deployed Lambda must consume FUN's immutable layers, extension-only log delivery and exact secret-read policy."
   }
 }
 

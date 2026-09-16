@@ -212,7 +212,8 @@ resource "aws_iam_role_policy" "function" {
     Version = "2012-10-17"
     Statement = concat(
       [local.lambda_logs_statement, local.vpc_statement, local.tracing_statement],
-      local.role_statements[each.key]
+      local.role_statements[each.key],
+      jsondecode(var.newrelic_extension_secret_access_policy_json).Statement
     )
   })
 }
@@ -243,6 +244,7 @@ resource "aws_lambda_function" "function" {
   s3_key            = var.lambda_artifact.s3_key
   s3_object_version = var.lambda_artifact.s3_object_version
   source_code_hash  = var.lambda_artifact.sha256_base64
+  layers            = var.newrelic_function_instrumentation[each.key].layers
   memory_size       = 1024
   timeout           = 20
   publish           = false
@@ -258,9 +260,10 @@ resource "aws_lambda_function" "function" {
     variables = merge({
       LOG_FORMAT                  = "JSON"
       LOG_LEVEL                   = "INFO"
+      OFICINA_ENVIRONMENT         = var.environment
       METRICS_NAMESPACE           = "Oficina/Functions"
       POWERTOOLS_LOGGER_LOG_EVENT = "false"
-      }, each.key == "authorizer" ? {
+      }, var.newrelic_function_instrumentation[each.key].environment, each.key == "authorizer" ? {
       CUSTOMER_JWT_ISSUER         = local.customer_issuer
       CUSTOMER_JWT_AUDIENCE       = local.audience
       CUSTOMER_KEY_ID             = var.customer_key_id

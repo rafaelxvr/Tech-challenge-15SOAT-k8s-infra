@@ -52,6 +52,30 @@ spec:
                   key: db_password
             - name: SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE
               value: "5"
+            # Snapshot configuration is nonsecret. The insert key remains in the CSI-synced
+            # existing environment secret and never appears in Terraform values or manifests.
+            - name: OBSERVABILITY_SNAPSHOTS_ENABLED
+              value: "true"
+            - name: DEPLOYMENT_ENVIRONMENT
+              value: "${ENVIRONMENT}"
+            - name: OFICINA_ENVIRONMENT
+              value: "${ENVIRONMENT}"
+            - name: NEW_RELIC_ACCOUNT_ID
+              value: "${NEW_RELIC_ACCOUNT_ID}"
+            - name: NEW_RELIC_EVENT_ENDPOINT
+              value: "https://insights-collector.newrelic.com/v1/accounts/${NEW_RELIC_ACCOUNT_ID}/events"
+            - name: NEW_RELIC_INSERT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: oficina-runtime-secrets
+                  key: newrelic_insert_key
+            # The Java agent consumes the same existing ingest key. This is a second reference
+            # to the approved CSI-synced key, never a second Secret or a plaintext value.
+            - name: NEW_RELIC_LICENSE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: oficina-runtime-secrets
+                  key: newrelic_insert_key
           startupProbe:
             httpGet:
               path: /api/actuator/health/liveness

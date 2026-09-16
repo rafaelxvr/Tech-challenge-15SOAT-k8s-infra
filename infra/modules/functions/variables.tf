@@ -128,3 +128,29 @@ variable "planned_monthly_invocations" {
     error_message = "planned_monthly_invocations values must be non-negative whole invocation counts."
   }
 }
+
+variable "newrelic_function_instrumentation" {
+  type = map(object({
+    function_name                      = string
+    layers                             = list(string)
+    environment                        = map(string)
+    log_forwarder                      = string
+    cloudwatch_subscription_filter_arn = string
+  }))
+  description = "Exact immutable layer and runtime environment contract exported by oficina-functions."
+  validation {
+    condition = toset(keys(var.newrelic_function_instrumentation)) == toset(["challenge", "verification", "authorizer", "notification"]) && alltrue([
+      for key, delivery in var.newrelic_function_instrumentation : delivery.function_name == "${var.name}-${var.environment}-${key}" && length(delivery.layers) == 2 && delivery.log_forwarder == "newrelic-extension" && delivery.cloudwatch_subscription_filter_arn == "" && delivery.environment.NEW_RELIC_LAMBDA_EXTENSION_ENABLED == "true" && delivery.environment.NEW_RELIC_LAMBDA_EXTENSION_LOGS_ENABLED == "true" && delivery.environment.NEW_RELIC_APPLICATION_LOGGING_FORWARDING_ENABLED == "false"
+    ])
+    error_message = "Functions must consume the FUN-owned pinned layers, extension-only forwarding and runtime environment contract."
+  }
+}
+
+variable "newrelic_extension_secret_access_policy_json" {
+  type        = string
+  description = "Least-privilege IAM policy JSON exported by oficina-functions for the existing ingest secret."
+  validation {
+    condition     = can(jsondecode(var.newrelic_extension_secret_access_policy_json))
+    error_message = "newrelic_extension_secret_access_policy_json must be valid FUN-owned IAM policy JSON."
+  }
+}

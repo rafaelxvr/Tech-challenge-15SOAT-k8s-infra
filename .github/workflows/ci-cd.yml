@@ -26,6 +26,15 @@ jobs:
           ./tests/functions-contract.ps1
       - name: Verify Terraform formatting
         run: terraform fmt -check -recursive
+      - name: Verify monitoring Terraform and rendered New Relic collectors
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v helm
+          terraform -chdir=infra/monitoring init -backend=false
+          terraform -chdir=infra/monitoring validate
+          terraform -chdir=infra/monitoring test
+          pwsh -NoProfile -File tests/newrelic-chart-tests.ps1
 
   deploy-staging:
     name: deploy-staging

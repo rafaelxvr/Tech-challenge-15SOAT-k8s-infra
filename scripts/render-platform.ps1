@@ -12,6 +12,8 @@ param(
     [Parameter(Mandatory)] [string]$AlbSubnetCidrOne,
     [Parameter(Mandatory)] [string]$AlbSubnetCidrTwo,
     [Parameter(Mandatory)] [string]$AppSecretArn,
+    [Parameter(Mandatory)] [string]$NewRelicIngestSecretArn,
+    [Parameter(Mandatory)] [string]$NewRelicAccountId,
     [Parameter(Mandatory)] [string]$OutputDirectory
 )
 
@@ -23,6 +25,8 @@ foreach ($arn in @($AppIrsaRoleArn, $DeployerPrincipalArn, $PlatformBindingPrinc
     if ($arn -notmatch '^arn:aws:iam::[0-9]{12}:role/.+$') { throw 'IRSA and deployer inputs must be IAM role ARNs.' }
 }
 if ($AppSecretArn -notmatch '^arn:aws:secretsmanager:us-east-1:[0-9]{12}:secret:.+$') { throw 'AppSecretArn must be a Secrets Manager ARN.' }
+if ($NewRelicIngestSecretArn -notmatch ("^arn:aws:secretsmanager:us-east-1:[0-9]{12}:secret:oficina/" + $Environment + "/newrelic-ingest-[A-Za-z0-9/_+=.@-]+$")) { throw 'NewRelicIngestSecretArn must reference the approved existing environment ingest secret.' }
+if ($NewRelicAccountId -notmatch '^[1-9][0-9]{0,15}$') { throw 'NewRelicAccountId must be a nonsecret positive account identifier.' }
 foreach ($cidr in @($DbCidr, $AlbSubnetCidrOne, $AlbSubnetCidrTwo)) {
     if ($cidr -notmatch '^([0-9]{1,3}\.){3}[0-9]{1,3}/([0-9]|[12][0-9]|3[0-2])$') { throw 'Database and ALB subnet inputs must be CIDR blocks.' }
 }
@@ -44,6 +48,8 @@ $tokens = [ordered]@{
     '${ALB_SUBNET_CIDR_TWO}'     = $AlbSubnetCidrTwo
     '${ENVIRONMENT}'             = $Environment
     '${APP_SECRET_ARN}'          = $AppSecretArn
+    '${NEW_RELIC_INGEST_SECRET_ARN}' = $NewRelicIngestSecretArn
+    '${NEW_RELIC_ACCOUNT_ID}'    = $NewRelicAccountId
 }
 foreach ($token in $tokens.Keys) { $rendered = $rendered.Replace($token, $tokens[$token]) }
 if ($rendered -match '\$\{[A-Z_]+\}') { throw 'Unresolved deployment input token in rendered platform manifest.' }

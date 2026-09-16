@@ -9,3 +9,5 @@ variable "ses_sender_email" { type = string }
 variable "ses_sandbox_mode" { type = bool }
 variable "approved_secret_count" { type = number }
 variable "planned_monthly_invocations" { type = object({ challenge = number, verification = number, authorizer = number, notification = number }) }
+variable "newrelic_function_instrumentation" { type = map(object({ function_name = string, layers = list(string), environment = map(string), log_forwarder = string, cloudwatch_subscription_filter_arn = string })) }
+variable "newrelic_extension_secret_access_policy_json" { type = string }
