@@ -76,11 +76,22 @@ run "trust_subjects_are_environment_scoped" {
 
   assert {
     condition = (
+      one([for statement in jsondecode(local.launcher_permission_policies["k8s_staging"]).Statement : statement if statement.Sid == "StartOnlyItsDeploymentProject"]).Effect == "Allow" &&
       contains(one([for statement in jsondecode(local.launcher_permission_policies["k8s_staging"]).Statement : statement if statement.Sid == "StartOnlyItsDeploymentProject"]).Action, "codebuild:StartBuild") &&
       one([for statement in jsondecode(local.launcher_permission_policies["k8s_staging"]).Statement : statement if statement.Sid == "StartOnlyItsDeploymentProject"]).Resource == var.launchers["k8s_staging"].codebuild_project_arn &&
       one([for statement in jsondecode(local.launcher_permission_policies["k8s_staging"]).Statement : statement if statement.Sid == "DenyBuildspecOverride"]).Condition.Null["codebuild:source.buildspec"] == "false"
     )
     error_message = "An ordinary StartBuild without buildspecOverride remains allowed for the exact reviewed project."
+  }
+
+  assert {
+    condition = (
+      one([for statement in jsondecode(local.launcher_permission_policies["k8s_staging"]).Statement : statement if statement.Sid == "DenyDeploymentControlOverrides"]).Effect == "Deny" &&
+      one([for statement in jsondecode(local.launcher_permission_policies["k8s_staging"]).Statement : statement if statement.Sid == "DenyDeploymentControlOverrides"]).Action == "codebuild:StartBuild" &&
+      one([for statement in jsondecode(local.launcher_permission_policies["k8s_staging"]).Statement : statement if statement.Sid == "DenyDeploymentControlOverrides"]).Resource == var.launchers["k8s_staging"].codebuild_project_arn &&
+      toset(one([for statement in jsondecode(local.launcher_permission_policies["k8s_staging"]).Statement : statement if statement.Sid == "DenyDeploymentControlOverrides"]).Condition["ForAnyValue:StringEquals"]["codebuild:environment.environmentVariables.name"]) == toset(["DEPLOYMENT_MODE", "DEPLOYMENT_TFVARS_PATH"])
+    )
+    error_message = "The parsed launcher IAM policy must deny only mode and tfvars StartBuild environment overrides on its exact project."
   }
 }
 

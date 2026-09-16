@@ -89,6 +89,13 @@ mkdir -p "$(dirname "$destination")"
 cp "$source" "$destination"
 '@
     Set-Content -LiteralPath (Join-Path $bin 'aws') -NoNewline -Value $awsStub
+    $pwshStub = @'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$PWSH_CAPTURE_FILE"
+exec "$(cygpath -u "$HARNESS_REAL_PWSH")" "$@"
+'@
+    Set-Content -LiteralPath (Join-Path $bin 'pwsh') -NoNewline -Value $pwshStub
     $terraformStub = @'
 @echo off
 echo %*>> "%CAPTURE_FILE%"
@@ -96,25 +103,29 @@ exit /b 0
 '@
     Set-Content -LiteralPath (Join-Path $bin 'terraform.cmd') -NoNewline -Value $terraformStub
     $capture = Join-Path $temp 'terraform-capture.txt'
+    $pwshCapture = Join-Path $temp 'pwsh-capture.txt'
     $scriptPath = $bootstrapPath.Replace('\', '/')
     $binPath = $bin.Replace('\', '/')
     $script = 'export PATH="$(cygpath -u ' + (Write-BashSingleQuoted $binPath) + '):$PATH"' + "`n" + 'exec /usr/bin/bash "$(cygpath -u ' + (Write-BashSingleQuoted $scriptPath) + ')"' + "`n"
     $runner = Join-Path $temp 'run-rendered-bootstrap.sh'; Set-Content -LiteralPath $runner -NoNewline -Value $script
 
-    $overrideNames = @('DEPLOY_ENVIRONMENT', 'TERRAFORM_BACKEND_BUCKET', 'TERRAFORM_BACKEND_KEY', 'TERRAFORM_BACKEND_LOCK_KEY', 'TERRAFORM_BACKEND_REGION', 'SOURCE_BUCKET', 'SOURCE_KEY', 'SOURCE_VERSION_ID', 'EXPECTED_SHA256', 'RELEASE_MANIFEST_KEY', 'RELEASE_MANIFEST_VERSION_ID', 'EXPECTED_MANIFEST_SHA256', 'SOURCE_COMMIT', 'DEPLOYER_IMAGE_DIGEST', 'DEPLOYMENT_TFVARS_PATH', 'DEPLOYMENT_MODE', 'TFVARS_OBJECT_KEY', 'TFVARS_VERSION_ID', 'EXPECTED_TFVARS_SHA256', 'HARNESS_BUNDLE', 'HARNESS_MANIFEST', 'HARNESS_TFVARS', 'CAPTURE_FILE')
+    $overrideNames = @('DEPLOY_ENVIRONMENT', 'TERRAFORM_BACKEND_BUCKET', 'TERRAFORM_BACKEND_KEY', 'TERRAFORM_BACKEND_LOCK_KEY', 'TERRAFORM_BACKEND_REGION', 'SOURCE_BUCKET', 'SOURCE_KEY', 'SOURCE_VERSION_ID', 'EXPECTED_SHA256', 'RELEASE_MANIFEST_KEY', 'RELEASE_MANIFEST_VERSION_ID', 'EXPECTED_MANIFEST_SHA256', 'SOURCE_COMMIT', 'DEPLOYER_IMAGE_DIGEST', 'DEPLOYMENT_TFVARS_PATH', 'DEPLOYMENT_MODE', 'TFVARS_OBJECT_KEY', 'TFVARS_VERSION_ID', 'EXPECTED_TFVARS_SHA256', 'HARNESS_BUNDLE', 'HARNESS_MANIFEST', 'HARNESS_TFVARS', 'CAPTURE_FILE', 'PWSH_CAPTURE_FILE', 'HARNESS_REAL_PWSH')
     $original = @{}
     foreach ($name in $overrideNames) { $original[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
     try {
         $env:DEPLOY_ENVIRONMENT = 'staging'; $env:TERRAFORM_BACKEND_BUCKET = 'attacker-state-example'; $env:TERRAFORM_BACKEND_KEY = 'environments/production.tfstate'; $env:TERRAFORM_BACKEND_LOCK_KEY = 'environments/production.tfstate.tflock'; $env:TERRAFORM_BACKEND_REGION = 'eu-west-1'
         $env:SOURCE_BUCKET = 'harness-artifacts'; $env:SOURCE_KEY = 'releases/k8s/staging/bundle.zip'; $env:SOURCE_VERSION_ID = 'bundle-version'; $env:EXPECTED_SHA256 = $sourceSha
         $env:RELEASE_MANIFEST_KEY = ('releases/k8s/staging/manifests/' + ('a' * 40) + '.json'); $env:RELEASE_MANIFEST_VERSION_ID = 'manifest-version'; $env:EXPECTED_MANIFEST_SHA256 = $manifestSha
-        $env:SOURCE_COMMIT = ('a' * 40); $env:DEPLOYER_IMAGE_DIGEST = ('sha256:' + ('b' * 64)); $env:DEPLOYMENT_TFVARS_PATH = '/tmp/oficina/k8s_staging.tfvars.json'; $env:DEPLOYMENT_MODE = 'plan'
+        $env:SOURCE_COMMIT = ('a' * 40); $env:DEPLOYER_IMAGE_DIGEST = ('sha256:' + ('b' * 64)); $env:DEPLOYMENT_TFVARS_PATH = '/tmp/attacker.tfvars.json'; $env:DEPLOYMENT_MODE = 'apply'
         $env:TFVARS_OBJECT_KEY = 'releases/k8s/staging/config/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.tfvars.json'; $env:TFVARS_VERSION_ID = 'tfvars-version'; $env:EXPECTED_TFVARS_SHA256 = $tfvarsSha
-        $env:HARNESS_BUNDLE = $bundle; $env:HARNESS_MANIFEST = $manifest; $env:HARNESS_TFVARS = $tfvarsInput; $env:CAPTURE_FILE = $capture
+        $env:HARNESS_BUNDLE = $bundle; $env:HARNESS_MANIFEST = $manifest; $env:HARNESS_TFVARS = $tfvarsInput; $env:CAPTURE_FILE = $capture; $env:PWSH_CAPTURE_FILE = $pwshCapture; $env:HARNESS_REAL_PWSH = (Get-Command pwsh -CommandType Application | Select-Object -First 1).Source
         & $gitBash $runner
         Assert-True ($LASTEXITCODE -eq 0) 'The rendered bootstrap did not complete with attacker backend overrides present.'
         $terraformCalls = Get-Content -LiteralPath $capture -Raw
+        $pwshCalls = Get-Content -LiteralPath $pwshCapture -Raw
         Assert-True ($terraformCalls -match 'init.*-backend-config=bucket=oficina-phase3-state-example.*-backend-config=key=environments/staging.tfstate.*-backend-config=region=us-east-1') 'The rendered bootstrap did not pass its literal reviewed backend arguments through deploy.ps1 to terraform init.'
+        Assert-True ($pwshCalls -match '-TerraformVariablesFile /tmp/oficina/k8s_staging\.tfvars\.json') 'The rendered bootstrap did not pass its literal reviewed tfvars path through deploy.ps1.'
+        Assert-True ($pwshCalls -notmatch 'attacker\.tfvars\.json' -and $pwshCalls -notmatch 'ApplyReviewedPlan' -and $terraformCalls -notmatch 'apply') 'StartBuild mode and tfvars overrides must not reach deploy or Terraform apply.'
 
         Remove-Item -LiteralPath $capture -Force
         $env:DEPLOY_ENVIRONMENT = 'production'
@@ -128,7 +139,7 @@ exit /b 0
             else { Set-Item -LiteralPath "Env:$name" -Value $original[$name] }
         }
     }
-    Write-Output 'PASS: Terraform-rendered CodeBuild bootstrap ignores backend StartBuild overrides and rejects mismatched environments before Terraform.'
+    Write-Output 'PASS: Terraform-rendered CodeBuild bootstrap ignores backend/mode/tfvars StartBuild overrides and rejects mismatched environments before Terraform.'
     exit 0
 }
 finally { Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue }

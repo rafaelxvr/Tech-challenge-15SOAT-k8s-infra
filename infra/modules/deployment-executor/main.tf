@@ -131,15 +131,17 @@ locals {
             reviewed_backend_key="__TERRAFORM_BACKEND_KEY__"
             reviewed_backend_lock_key="__TERRAFORM_BACKEND_LOCK_KEY__"
             reviewed_backend_region="__TERRAFORM_BACKEND_REGION__"
-            required=(DEPLOY_ENVIRONMENT SOURCE_BUCKET SOURCE_KEY SOURCE_VERSION_ID EXPECTED_SHA256 RELEASE_MANIFEST_KEY RELEASE_MANIFEST_VERSION_ID EXPECTED_MANIFEST_SHA256 SOURCE_COMMIT DEPLOYER_IMAGE_DIGEST DEPLOYMENT_TFVARS_PATH DEPLOYMENT_MODE)
+            reviewed_deployment_mode="__DEPLOYMENT_MODE__"
+            reviewed_tfvars_path="__DEPLOYMENT_TFVARS_PATH__"
+            required=(DEPLOY_ENVIRONMENT SOURCE_BUCKET SOURCE_KEY SOURCE_VERSION_ID EXPECTED_SHA256 RELEASE_MANIFEST_KEY RELEASE_MANIFEST_VERSION_ID EXPECTED_MANIFEST_SHA256 SOURCE_COMMIT DEPLOYER_IMAGE_DIGEST)
             for variable in "$${required[@]}"; do
               if [ -z "$${!variable:-}" ]; then
                 echo "Required deployment input is missing: $${variable}"
                 exit 1
               fi
             done
-            if [ "$${DEPLOYMENT_MODE}" != "plan" ] && [ "$${DEPLOYMENT_MODE}" != "apply" ]; then
-              echo 'DEPLOYMENT_MODE must be plan or apply.'
+            if [ "$${reviewed_deployment_mode}" != "plan" ] && [ "$${reviewed_deployment_mode}" != "apply" ]; then
+              echo 'Reviewed deployment mode must be plan or apply.'
               exit 1
             fi
             if [ "$${DEPLOY_ENVIRONMENT}" != "$${reviewed_environment}" ]; then
@@ -167,28 +169,30 @@ locals {
             for variable in TFVARS_OBJECT_KEY TFVARS_VERSION_ID EXPECTED_TFVARS_SHA256; do
               if [ -z "$${!variable:-}" ]; then echo "Required Terraform variables input is missing: $${variable}"; exit 1; fi
             done
-            aws s3api get-object --bucket "$${SOURCE_BUCKET}" --key "$${TFVARS_OBJECT_KEY}" --version-id "$${TFVARS_VERSION_ID}" "$${DEPLOYMENT_TFVARS_PATH}" >/dev/null
-            actual_tfvars_sha="$(sha256sum "$${DEPLOYMENT_TFVARS_PATH}" | awk '{print $1}')"
+            aws s3api get-object --bucket "$${SOURCE_BUCKET}" --key "$${TFVARS_OBJECT_KEY}" --version-id "$${TFVARS_VERSION_ID}" "$${reviewed_tfvars_path}" >/dev/null
+            actual_tfvars_sha="$(sha256sum "$${reviewed_tfvars_path}" | awk '{print $1}')"
             if [ "$${actual_tfvars_sha}" != "$${EXPECTED_TFVARS_SHA256}" ]; then
               echo 'Terraform variables digest mismatch.'
               exit 1
             fi
             unzip -q "$${workdir}/bundle.zip" -d "$${workdir}/release"
             apply_switch=()
-            if [ "$${DEPLOYMENT_MODE}" = "apply" ]; then apply_switch=(-ApplyReviewedPlan); fi
-            pwsh -NoLogo -NoProfile -File "$${workdir}/release/scripts/deploy.ps1" -Environment "$${reviewed_environment}" -ReleaseManifest "$${workdir}/release-manifest.json" -ExpectedSourceSha256 "$${EXPECTED_SHA256}" -ExpectedManifestSha256 "$${EXPECTED_MANIFEST_SHA256}" -SourceCommit "$${SOURCE_COMMIT}" -ExpectedDeployerImageDigest "$${DEPLOYER_IMAGE_DIGEST}" -TerraformVariablesFile "$${DEPLOYMENT_TFVARS_PATH}" -TerraformBackendBucket "$${reviewed_backend_bucket}" -TerraformBackendKey "$${reviewed_backend_key}" -TerraformBackendLockKey "$${reviewed_backend_lock_key}" -TerraformBackendRegion "$${reviewed_backend_region}" "$${apply_switch[@]}"
+            if [ "$${reviewed_deployment_mode}" = "apply" ]; then apply_switch=(-ApplyReviewedPlan); fi
+            pwsh -NoLogo -NoProfile -File "$${workdir}/release/scripts/deploy.ps1" -Environment "$${reviewed_environment}" -ReleaseManifest "$${workdir}/release-manifest.json" -ExpectedSourceSha256 "$${EXPECTED_SHA256}" -ExpectedManifestSha256 "$${EXPECTED_MANIFEST_SHA256}" -SourceCommit "$${SOURCE_COMMIT}" -ExpectedDeployerImageDigest "$${DEPLOYER_IMAGE_DIGEST}" -TerraformVariablesFile "$${reviewed_tfvars_path}" -TerraformBackendBucket "$${reviewed_backend_bucket}" -TerraformBackendKey "$${reviewed_backend_key}" -TerraformBackendLockKey "$${reviewed_backend_lock_key}" -TerraformBackendRegion "$${reviewed_backend_region}" "$${apply_switch[@]}"
   YAML
   # This is the exact buildspec passed to each aws_codebuild_project.deploy
   # source block below. Tests render this local through Terraform, then run
   # the resulting shell bootstrap with mocked process dependencies.
   rendered_deployment_buildspecs = {
-    for key, deployment in var.deployments : key => replace(replace(replace(replace(replace(
+    for key, deployment in var.deployments : key => replace(replace(replace(replace(replace(replace(replace(
       local.inline_deployment_buildspec_template,
       "__DEPLOYMENT_ENVIRONMENT__", deployment.environment),
       "__TERRAFORM_BACKEND_BUCKET__", var.state_bucket_name),
       "__TERRAFORM_BACKEND_KEY__", deployment.terraform_state_key),
       "__TERRAFORM_BACKEND_LOCK_KEY__", "${deployment.terraform_state_key}.tflock"),
-    "__TERRAFORM_BACKEND_REGION__", var.aws_region)
+      "__TERRAFORM_BACKEND_REGION__", var.aws_region),
+      "__DEPLOYMENT_MODE__", deployment.deployment_mode),
+    "__DEPLOYMENT_TFVARS_PATH__", deployment.terraform_variables_path)
   }
 }
 
@@ -237,8 +241,8 @@ resource "aws_codebuild_project" "deploy" {
   source {
     type     = "S3"
     location = "${var.artifact_bucket_name}/${each.value.source_prefix}/bundle.zip"
-    # State selection is rendered into this Terraform-owned buildspec. A
-    # StartBuild environmentVariablesOverride cannot alter these literals.
+    # State selection and deploy controls are Terraform-rendered literals.
+    # StartBuild environmentVariablesOverride cannot alter these values.
     buildspec = local.rendered_deployment_buildspecs[each.key]
   }
   environment {
@@ -247,16 +251,6 @@ resource "aws_codebuild_project" "deploy" {
     type                        = "LINUX_CONTAINER"
     image_pull_credentials_type = "SERVICE_ROLE"
     privileged_mode             = false
-    environment_variable {
-      name  = "DEPLOYMENT_MODE"
-      value = each.value.deployment_mode
-      type  = "PLAINTEXT"
-    }
-    environment_variable {
-      name  = "DEPLOYMENT_TFVARS_PATH"
-      value = each.value.terraform_variables_path
-      type  = "PLAINTEXT"
-    }
   }
   vpc_config {
     vpc_id             = var.vpc_id

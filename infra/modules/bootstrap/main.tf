@@ -48,6 +48,17 @@ locals {
           # The Null=false condition is AWS's documented way to deny any
           # StartBuild request that supplies buildspecOverride.
           Condition = { Null = { "codebuild:source.buildspec" = "false" } }
+        },
+        {
+          Sid      = "DenyDeploymentControlOverrides"
+          Effect   = "Deny"
+          Action   = "codebuild:StartBuild"
+          Resource = launcher.codebuild_project_arn
+          Condition = {
+            "ForAnyValue:StringEquals" = {
+              "codebuild:environment.environmentVariables.name" = ["DEPLOYMENT_MODE", "DEPLOYMENT_TFVARS_PATH"]
+            }
+          }
         }
         ], launcher.environment == "production" ? [
         {

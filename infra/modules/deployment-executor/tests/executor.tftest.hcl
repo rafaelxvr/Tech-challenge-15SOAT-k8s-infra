@@ -47,8 +47,8 @@ run "eight_bounded_private_deployers" {
   assert {
     condition = alltrue([for key, project in aws_codebuild_project.deploy :
       project.source[0].buildspec == local.rendered_deployment_buildspecs[key] &&
-      contains([for variable in project.environment[0].environment_variable : variable.name], "DEPLOYMENT_TFVARS_PATH") &&
-      contains([for variable in project.environment[0].environment_variable : variable.name], "DEPLOYMENT_MODE") &&
+      !contains([for variable in project.environment[0].environment_variable : variable.name], "DEPLOYMENT_TFVARS_PATH") &&
+      !contains([for variable in project.environment[0].environment_variable : variable.name], "DEPLOYMENT_MODE") &&
       !contains([for variable in project.environment[0].environment_variable : variable.name], "TERRAFORM_BACKEND_BUCKET") &&
       !contains([for variable in project.environment[0].environment_variable : variable.name], "TERRAFORM_BACKEND_KEY") &&
       !contains([for variable in project.environment[0].environment_variable : variable.name], "TERRAFORM_BACKEND_LOCK_KEY") &&
@@ -58,10 +58,12 @@ run "eight_bounded_private_deployers" {
       strcontains(project.source[0].buildspec, "reviewed_backend_key=\"${var.deployments[key].terraform_state_key}\"") &&
       strcontains(project.source[0].buildspec, "reviewed_backend_lock_key=\"${var.deployments[key].terraform_state_key}.tflock\"") &&
       strcontains(project.source[0].buildspec, "reviewed_backend_region=\"${var.aws_region}\"") &&
+      strcontains(project.source[0].buildspec, "reviewed_deployment_mode=\"${var.deployments[key].deployment_mode}\"") &&
+      strcontains(project.source[0].buildspec, "reviewed_tfvars_path=\"${var.deployments[key].terraform_variables_path}\"") &&
       strcontains(project.source[0].buildspec, "Deployment environment override does not match this reviewed executor.") &&
       !strcontains(project.source[0].buildspec, "$${TERRAFORM_BACKEND_KEY}")
     ])
-    error_message = "Every executor must render its exact Terraform state backend into the Terraform-owned bootstrap, outside StartBuild overrides."
+    error_message = "Every executor must render its exact backend, deployment mode, and tfvars path into the Terraform-owned bootstrap, outside StartBuild overrides."
   }
   assert {
     condition = alltrue([
