@@ -118,6 +118,69 @@ run "trust_subjects_are_environment_scoped" {
   }
 }
 
+run "foundation_output_reads_only_for_proven_consumers" {
+  command = plan
+  variables {
+    launchers = { for item in flatten([for component, repository in {
+      k8s        = "Tech-challenge-15SOAT-k8s-infra"
+      database   = "Tech-challenge-15SOAT-db-infra"
+      functions  = "Tech-challenge-15SOAT-functions"
+      app        = "Tech-challenge-15SOAT"
+      unreviewed = "unreviewed-db-infra"
+      } : [for environment in ["staging", "production"] : {
+        name = "${component}_${environment}"
+        launcher = {
+          repository            = "rafaelxvr/${repository}"
+          github_subject_prefix = "repo:rafaelxvr@101/${repository}@202"
+          environment           = environment
+          branch                = environment == "staging" ? "develop" : "main"
+          source_prefix         = "releases/${component == "unreviewed" ? "database" : component}/${environment}"
+          codebuild_project_arn = "arn:aws:codebuild:us-east-1:123456789012:project/oficina-${component}-${environment}"
+        }
+    }]]) : item.name => item.launcher }
+  }
+  assert {
+    condition = alltrue([for name, policy in local.launcher_permission_policies :
+      jsonencode([for statement in jsondecode(policy).Statement : statement if statement.Sid == "ReadOnlyVersionedFoundationOutputArtifact"]) == jsonencode(
+        startswith(name, "k8s_") || startswith(name, "database_") ? [{
+          Sid      = "ReadOnlyVersionedFoundationOutputArtifact"
+          Effect   = "Allow"
+          Action   = ["s3:GetObject", "s3:GetObjectVersion"]
+          Resource = "${aws_s3_bucket.artifact.arn}/releases/k8s/foundation/outputs/*"
+        }] : []
+      )
+    ])
+    error_message = "Only K8S and the reviewed DB repository may read the exact versioned foundation outputs prefix; APP, functions and a lookalike database-prefix repository receive no grant."
+  }
+  assert {
+    condition = alltrue([for name, policy in local.launcher_permission_policies :
+      length([for statement in jsondecode(policy).Statement : statement if statement.Effect == "Deny" && contains(["DenyBuildspecOverride", "DenyDeploymentControlOverrides"], statement.Sid)]) == 2 &&
+      one([for statement in jsondecode(policy).Statement : statement if statement.Sid == "UploadOnlyReviewedSourcePrefix"]).Resource == "${aws_s3_bucket.artifact.arn}/${var.launchers[name].source_prefix}/*"
+    ])
+    error_message = "Foundation receipt reads must preserve build/control denials and each launcher's existing writable source prefix."
+  }
+}
+
+run "database_foundation_reads_require_exact_environment_prefix" {
+  command = plan
+  variables {
+    launchers = { for environment in ["staging", "production"] : "database_${environment}" => {
+      repository            = "rafaelxvr/Tech-challenge-15SOAT-db-infra"
+      github_subject_prefix = "repo:rafaelxvr@101/Tech-challenge-15SOAT-db-infra@202"
+      environment           = environment
+      branch                = environment == "staging" ? "develop" : "main"
+      source_prefix         = "releases/database/${environment}/unreviewed"
+      codebuild_project_arn = "arn:aws:codebuild:us-east-1:123456789012:project/oficina-database-${environment}"
+    } }
+  }
+  assert {
+    condition = alltrue([for policy in values(local.launcher_permission_policies) :
+      !contains([for statement in jsondecode(policy).Statement : statement.Sid], "ReadOnlyVersionedFoundationOutputArtifact")
+    ])
+    error_message = "The DB repository alone must not grant foundation reads outside its exact reviewed environment source prefix."
+  }
+}
+
 run "rejects_wrong_branch_for_environment" {
   command = plan
 

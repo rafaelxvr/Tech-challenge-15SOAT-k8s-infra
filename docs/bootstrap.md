@@ -54,6 +54,10 @@ Run these commands only during the approved cloud window, from a dedicated MFA-p
 
 5. Attach only the exported per-root state policy to the dedicated operator/deployment identity. Each policy permits its `.tfstate` object and its matching `.tflock`, never arbitrary state deletion. GitHub launchers can upload only their source prefix and start only their CodeBuild project; workload runtime roles are created later and must remain separate.
 
+Kubernetes and database staging/production workflows resolve `FOUNDATION_OUTPUT_RECEIPT_JSON` before starting CodeBuild. Their launchers therefore need `s3:GetObject` and `s3:GetObjectVersion` only on the artifact bucket's `releases/k8s/foundation/outputs/*` prefix. Existing Kubernetes access is preserved; new database access requires repository `rafaelxvr/Tech-challenge-15SOAT-db-infra` and exactly `releases/database/{environment}` as its source prefix. It grants no bucket listing, foundation-output writes, deletes, or Terraform state access. Current APP (`Tech-challenge-15SOAT/.github/workflows/ci-cd.yml`) and functions (`oficina-functions/.github/workflows/ci.yml`) workflows do not resolve that receipt and receive no new grant. Any future consumer needs a separately reviewed dependency and policy change.
+
+The mocked `foundation_output_reads_only_for_proven_consumers` test checks both environments for K8S/DB, absence for APP/functions and a different repository using the database prefix, the exact two read actions/object prefix, and preservation of the existing launcher denials. The test failed with the previous DB policy and passes with the scoped grant; this is offline policy evidence, not live OIDC/S3 validation.
+
 Run offline checks before review:
 
 ```powershell

@@ -71,9 +71,12 @@ locals {
           Effect   = "Allow"
           Action   = ["codebuild:StartBuild", "codebuild:BatchGetBuilds"]
           Resource = tolist(launcher.additional_codebuild_project_arns)
-        }], startswith(launcher.source_prefix, "releases/k8s/") ? [
-        # Platform launches consume a single immutable foundation-output
-        # artifact. It is separate from the launcher's writable source prefix.
+          }], (startswith(launcher.source_prefix, "releases/k8s/") || (
+          launcher.repository == "rafaelxvr/Tech-challenge-15SOAT-db-infra" && launcher.source_prefix == "releases/database/${launcher.environment}"
+        )) ? [
+        # K8S and DB workflows resolve the versioned foundation receipt before
+        # CodeBuild. APP/functions have no proven receipt dependency. DB access
+        # requires the reviewed repository and its exact environment prefix.
         {
           Sid      = "ReadOnlyVersionedFoundationOutputArtifact"
           Effect   = "Allow"
