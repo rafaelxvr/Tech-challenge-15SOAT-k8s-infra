@@ -7,6 +7,7 @@ variables {
   vpc_id                = "vpc-12345678"
   cluster_arn           = "arn:aws:eks:us-east-1:123456789012:cluster/oficina-phase3"
   node_group_arns       = ["arn:aws:eks:us-east-1:123456789012:nodegroup/oficina-phase3/workers-a/example", "arn:aws:eks:us-east-1:123456789012:nodegroup/oficina-phase3/workers-b/example"]
+  kubernetes_repository = "oficina-k8s-infra"
   artifact_bucket_name  = "oficina-phase3-artifacts-example"
   private_subnet_ids    = ["subnet-a", "subnet-b"]
   security_group_ids    = ["sg-codebuild"]
@@ -30,6 +31,15 @@ run "eight_bounded_private_deployers" {
     error_message = "The four repositories require exactly eight bounded, S3-sourced non-privileged deployers."
   }
   assert {
+    condition = length([for key, deployment in var.deployments : key if deployment.repository == var.kubernetes_repository]) == 2 && alltrue([
+      for key, deployment in var.deployments :
+      deployment.repository == var.kubernetes_repository ?
+      length(local.executor_eks_actions[key]) == 5 && contains(local.executor_eks_actions[key], "eks:UpdateNodegroupConfig") && contains(local.executor_eks_actions[key], "eks:UpdateNodegroupVersion") :
+      length(local.executor_eks_actions[key]) == 1 && local.executor_eks_actions[key][0] == "eks:DescribeCluster"
+    ])
+    error_message = "Only the Kubernetes repository's staging and production roles may update reviewed node groups."
+  }
+  assert {
     condition     = aws_ecr_repository.deployer.image_tag_mutability == "IMMUTABLE" && can(regex("^sha256:", var.deployer_image_digest))
     error_message = "Every deployer must consume the platform ECR image by immutable digest."
   }
@@ -48,14 +58,14 @@ run "rejects_duplicate_environment_for_a_repository" {
 
   variables {
     deployments = {
-      k8s_staging          = { repository = "oficina-k8s-infra", environment = "staging", source_prefix = "releases/k8s/staging" }
-      k8s_production       = { repository = "oficina-k8s-infra", environment = "production", source_prefix = "releases/k8s/production" }
-      db_staging           = { repository = "oficina-db-infra", environment = "staging", source_prefix = "releases/db/staging" }
-      db_production        = { repository = "oficina-db-infra", environment = "production", source_prefix = "releases/db/production" }
-      functions_staging    = { repository = "oficina-functions", environment = "staging", source_prefix = "releases/functions/staging" }
-      functions_production = { repository = "oficina-functions", environment = "production", source_prefix = "releases/functions/production" }
-      app_staging          = { repository = "oficina-app", environment = "staging", source_prefix = "releases/app/staging" }
-      app_production       = { repository = "oficina-app", environment = "staging", source_prefix = "releases/app/production" }
+      k8s_staging           = { repository = "oficina-k8s-infra", environment = "staging", source_prefix = "releases/k8s/staging" }
+      k8s_production        = { repository = "oficina-k8s-infra", environment = "production", source_prefix = "releases/k8s/production" }
+      db_staging            = { repository = "oficina-db-infra", environment = "staging", source_prefix = "releases/db/staging" }
+      db_production         = { repository = "oficina-db-infra", environment = "production", source_prefix = "releases/db/production" }
+      functions_staging     = { repository = "oficina-functions", environment = "staging", source_prefix = "releases/functions/staging" }
+      functions_production  = { repository = "oficina-functions", environment = "production", source_prefix = "releases/functions/production" }
+      app_staging           = { repository = "oficina-app", environment = "staging", source_prefix = "releases/app/staging" }
+      app_staging_duplicate = { repository = "oficina-app", environment = "staging", source_prefix = "releases/app/staging-duplicate" }
     }
   }
 

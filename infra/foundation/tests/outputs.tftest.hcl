@@ -15,6 +15,7 @@ variables {
   vpc_cni_addon_version    = "v1.21.0-eksbuild.1"
   coredns_addon_version    = "v1.12.0-eksbuild.1"
   deployer_image_digest    = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  kubernetes_repository    = "oficina-k8s-infra"
   deployments = {
     k8s_staging          = { repository = "oficina-k8s-infra", environment = "staging", source_prefix = "releases/k8s/staging" }
     k8s_production       = { repository = "oficina-k8s-infra", environment = "production", source_prefix = "releases/k8s/production" }

@@ -3,6 +3,19 @@ locals {
   project_names = {
     for key, deployment in var.deployments : key => "${var.name}-${replace(deployment.repository, "/", "-")}-${deployment.environment}-deploy"
   }
+  eks_describe_actions = ["eks:DescribeCluster"]
+  eks_node_group_update_actions = [
+    "eks:DescribeNodegroup",
+    "eks:DescribeUpdate",
+    "eks:UpdateNodegroupConfig",
+    "eks:UpdateNodegroupVersion"
+  ]
+  executor_eks_actions = {
+    for key, deployment in var.deployments : key => deployment.repository == var.kubernetes_repository ? concat(local.eks_describe_actions, local.eks_node_group_update_actions) : local.eks_describe_actions
+  }
+  executor_eks_resources = {
+    for key, deployment in var.deployments : key => deployment.repository == var.kubernetes_repository ? concat([var.cluster_arn], var.node_group_arns) : [var.cluster_arn]
+  }
   codebuild_assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -43,10 +56,10 @@ locals {
           Resource = "*"
         },
         {
-          Sid      = "ControlOnlyReviewedClusterAndNodeGroups"
+          Sid      = deployment.repository == var.kubernetes_repository ? "ControlOnlyReviewedClusterAndNodeGroups" : "DescribeOnlyReviewedCluster"
           Effect   = "Allow"
-          Action   = ["eks:DescribeCluster", "eks:DescribeNodegroup", "eks:DescribeUpdate", "eks:UpdateNodegroupConfig", "eks:UpdateNodegroupVersion"]
-          Resource = concat([var.cluster_arn], var.node_group_arns)
+          Action   = local.executor_eks_actions[key]
+          Resource = local.executor_eks_resources[key]
         }
       ]
     })

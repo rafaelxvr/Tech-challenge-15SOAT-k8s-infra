@@ -3,7 +3,8 @@ locals {
   tags      = { project = "oficina-phase3" }
   # aws provider 5.100.0 exposes max_unavailable but not EKS's updateStrategy.
   # The terraform_data executor below calls EKS's supported API before a version update.
-  node_update_strategy = "MINIMAL"
+  node_update_strategy  = "MINIMAL"
+  node_update_max_polls = 120
   aws_node_irsa_trust = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -105,13 +106,14 @@ resource "terraform_data" "workers_minimal_update" {
     node_group_release_versions_json = jsonencode({ for az, group in aws_eks_node_group.workers : group.node_group_name => var.node_ami_release_version })
     max_unavailable                  = 1
     update_strategy                  = local.node_update_strategy
+    max_polls                        = local.node_update_max_polls
   }
 
   depends_on = [aws_eks_node_group.workers]
 
   provisioner "local-exec" {
     interpreter = ["pwsh", "-NoLogo", "-NoProfile", "-File"]
-    command     = "${path.module}/scripts/apply-minimal-node-update.ps1 -Region ${var.aws_region} -ClusterName ${aws_eks_cluster.this.name} -NodeGroupReleaseVersionsJson '${self.triggers_replace.node_group_release_versions_json}' -UpdateStrategy ${local.node_update_strategy} -MaxUnavailable 1"
+    command     = "${path.module}/scripts/apply-minimal-node-update.ps1 -Region ${var.aws_region} -ClusterName ${aws_eks_cluster.this.name} -NodeGroupReleaseVersionsJson '${self.triggers_replace.node_group_release_versions_json}' -UpdateStrategy ${local.node_update_strategy} -MaxUnavailable 1 -MaxPolls ${local.node_update_max_polls}"
   }
 }
 

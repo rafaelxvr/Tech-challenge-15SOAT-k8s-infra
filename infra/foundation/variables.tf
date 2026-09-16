@@ -24,6 +24,7 @@ variable "node_ami_release_version" { type = string }
 variable "vpc_cni_addon_version" { type = string }
 variable "coredns_addon_version" { type = string }
 variable "deployer_image_digest" { type = string }
+variable "kubernetes_repository" { type = string }
 variable "deployments" {
   type = map(object({
     repository    = string
