@@ -10,8 +10,9 @@ pwsh ./tests/platform-manifests-tests.ps1
 
 Remote owner, visibility, protected branches, environment credentials, and deployment targets are release prerequisites and are intentionally unset in this local bootstrap.
 
-The CI/CD contract is documented in [docs/deployment-sequence.md](docs/deployment-sequence.md). Its local verification has no AWS or GitHub side effects:
+The CI/CD contract is documented in [docs/deployment-sequence.md](docs/deployment-sequence.md). The external-protection checklist, output schema, ordered handoff, and R4 evidence boundary are in [docs/release-readiness.md](docs/release-readiness.md). Its local verification has no AWS or GitHub side effects:
 
 ```powershell
 pwsh ./tests/pipeline-contract.ps1
+pwsh ./tests/release-readiness-contract.ps1
 ```
