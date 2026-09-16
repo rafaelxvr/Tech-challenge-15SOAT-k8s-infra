@@ -128,7 +128,7 @@ run "allows_only_exact_foundation_addons_target_for_k8s_staging" {
   variables {
     launchers = {
       k8s-staging = {
-        repository                        = "example/oficina-k8s-infra"
+        repository                        = "rafaelxvr/Tech-challenge-15SOAT-k8s-infra"
         environment                       = "staging"
         branch                            = "develop"
         source_prefix                     = "releases/k8s/staging"
@@ -156,6 +156,25 @@ run "rejects_any_other_foundation_addons_target" {
         source_prefix                     = "releases/k8s/staging"
         codebuild_project_arn             = "arn:aws:codebuild:us-east-1:123456789012:project/oficina-k8s-staging"
         additional_codebuild_project_arns = ["arn:aws:codebuild:us-east-1:123456789012:project/unreviewed-project"]
+      }
+    }
+  }
+
+  expect_failures = [var.launchers]
+}
+
+run "rejects_foundation_addons_from_another_launcher" {
+  command = plan
+
+  variables {
+    launchers = {
+      other-staging = {
+        repository                        = "rafaelxvr/Tech-challenge-15SOAT-k8s-infra"
+        environment                       = "staging"
+        branch                            = "develop"
+        source_prefix                     = "releases/k8s/staging"
+        codebuild_project_arn             = "arn:aws:codebuild:us-east-1:123456789012:project/oficina-k8s-staging"
+        additional_codebuild_project_arns = ["arn:aws:codebuild:us-east-1:123456789012:project/oficina-phase3-foundation-addons"]
       }
     }
   }

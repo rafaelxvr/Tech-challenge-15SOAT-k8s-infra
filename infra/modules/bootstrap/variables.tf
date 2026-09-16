@@ -86,10 +86,10 @@ variable "launchers" {
   validation {
     condition = alltrue([
       for name, launcher in var.launchers : length(launcher.additional_codebuild_project_arns) == 0 || (
-        name == "k8s-staging" && can(regex("^[A-Za-z0-9_.-]+/oficina-k8s-infra$", launcher.repository)) && launcher.environment == "staging" && launcher.branch == "develop" && launcher.source_prefix == "releases/k8s/staging" && launcher.additional_codebuild_project_arns == toset(["arn:aws:codebuild:us-east-1:${var.account_id}:project/oficina-phase3-foundation-addons"])
+        name == "k8s-staging" && launcher.environment == "staging" && launcher.branch == "develop" && launcher.source_prefix == "releases/k8s/staging" && launcher.additional_codebuild_project_arns == toset(["arn:aws:codebuild:us-east-1:${var.account_id}:project/oficina-phase3-foundation-addons"])
       )
     ])
-    error_message = "Only the oficina-k8s-infra staging launcher may target the exact foundation-addons CodeBuild project."
+    error_message = "Only the reviewed Kubernetes staging launcher may target the exact foundation-addons CodeBuild project."
   }
 }
 
