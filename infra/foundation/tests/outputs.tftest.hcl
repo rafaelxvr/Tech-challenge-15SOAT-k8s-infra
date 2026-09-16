@@ -49,8 +49,8 @@ run "foundation_output_schema_is_bounded" {
     error_message = "Foundation must own one private ALB, both safe default listeners, and the shared private VPC link."
   }
   assert {
-    condition     = length(aws_vpc_security_group_ingress_rule.vpc_link_to_alb) == 2 && aws_vpc_security_group_ingress_rule.alb_to_cluster.from_port == 8080 && length(aws_security_group.internal_alb.ingress) == 0 && length(aws_security_group.internal_alb.egress) == 0
-    error_message = "ALB traffic must be closed by default and allow only VPC-link listeners plus port 8080 to registered pods."
+    condition     = length(aws_vpc_security_group_ingress_rule.vpc_link_to_alb) == 2 && aws_vpc_security_group_egress_rule.alb_to_cluster.to_port == 8080 && aws_vpc_security_group_ingress_rule.alb_to_cluster.from_port == 8080
+    error_message = "ALB traffic must be owned by standalone VPC-link ingress and registered-pod egress rules only."
   }
   assert {
     condition     = output.foundation_addons_executor.stateKey == "foundation-addons/terraform.tfstate"

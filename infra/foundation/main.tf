@@ -78,8 +78,6 @@ resource "aws_security_group" "internal_alb" {
   name        = "${var.name}-internal-alb"
   description = "Internal Oficina ALB; listeners accept traffic only from the VPC link."
   vpc_id      = module.network.vpc_id
-  ingress     = []
-  egress      = []
   tags        = { project = "oficina-phase3", managedBy = "oficina-k8s-infra" }
 }
 
@@ -87,8 +85,6 @@ resource "aws_security_group" "vpc_link" {
   name        = "${var.name}-http-api-vpc-link"
   description = "HTTP API private integration egress only to the internal ALB."
   vpc_id      = module.network.vpc_id
-  ingress     = []
-  egress      = []
   tags        = { project = "oficina-phase3", managedBy = "oficina-k8s-infra" }
 }
 
@@ -233,8 +229,6 @@ resource "aws_security_group" "lambda" {
   name        = "${var.name}-functions"
   description = "Private Lambda egress is limited to TLS service APIs and PostgreSQL in the reviewed database group."
   vpc_id      = module.network.vpc_id
-  ingress     = []
-  egress      = []
   tags        = { project = "oficina-phase3", managedBy = "oficina-k8s-infra", component = "functions" }
 }
 
@@ -242,8 +236,6 @@ resource "aws_security_group" "rds" {
   name        = "${var.name}-rds"
   description = "Managed PostgreSQL accepts traffic only from the foundation Lambda security group."
   vpc_id      = module.network.vpc_id
-  ingress     = []
-  egress      = []
   tags        = { project = "oficina-phase3", managedBy = "oficina-k8s-infra", component = "database" }
 }
 
