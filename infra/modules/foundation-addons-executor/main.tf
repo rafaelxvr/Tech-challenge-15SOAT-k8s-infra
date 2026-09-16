@@ -61,6 +61,7 @@ locals {
       { Sid = "CodeBuildVpcNetworkInterfaces", Effect = "Allow", Action = local.codebuild_vpc_network_interface_actions, Resource = "*" },
       { Sid = "PullOnlyPinnedDeployerImage", Effect = "Allow", Action = ["ecr:BatchCheckLayerAvailability", "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"], Resource = "arn:aws:ecr:${var.aws_region}:${var.account_id}:repository/${split("/", var.deployer_repository_url)[1]}" },
       { Sid = "AuthenticateOnlyToPullDeployerImage", Effect = "Allow", Action = "ecr:GetAuthorizationToken", Resource = "*" },
+      { Sid = "CreateOnlyThisBuildLogGroup", Effect = "Allow", Action = "logs:CreateLogGroup", Resource = "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:/aws/codebuild/${local.project_name}" },
       { Sid = "WriteOnlyThisBuildLogGroup", Effect = "Allow", Action = ["logs:CreateLogStream", "logs:PutLogEvents"], Resource = "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:/aws/codebuild/${local.project_name}:log-stream:*" }
     ]
   })
@@ -79,7 +80,8 @@ resource "aws_iam_role_policy" "foundation_addons" {
 
 # The dedicated executor receives a cluster-scoped EKS policy because the four
 # reviewed charts create kube-system and cluster-scoped resources. It receives
-# no AWS write permission beyond its own isolated Terraform state and lock.
+# no IAM/EKS write permission. Required VPC interfaces and its own build logs
+# accompany the writes to its isolated Terraform state and lock.
 resource "aws_eks_access_entry" "foundation_addons" {
   cluster_name  = var.cluster_name
   principal_arn = aws_iam_role.foundation_addons.arn

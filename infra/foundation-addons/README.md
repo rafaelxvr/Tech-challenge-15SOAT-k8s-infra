@@ -4,6 +4,8 @@ This root owns only the four pinned cluster-wide Helm releases: AWS Load Balance
 
 Foundation creates the executor, its VPC attachment, and EKS access entry. The executor reads `foundation-addons/bundle.zip` from the reviewed artifact bucket, writes generated nonsecret connection inputs locally, then validates, plans, and applies this root through the private cluster endpoint. It uses the pinned shared deployer image.
 
+The executor role can create only its declared `/aws/codebuild/<name>-foundation-addons` CloudWatch Logs group in the configured account and region. `logs:CreateLogGroup` uses that exact group ARN; `logs:CreateLogStream` and `logs:PutLogEvents` remain separately limited to streams inside that group. A missing group-creation permission blocks CodeBuild before the releases run, even when stream-write permissions are present. The correction is owned by `infra/modules/foundation-addons-executor` and requires the reviewed Foundation IAM policy update before a staging retry; it grants no other log groups or log-management actions. The mocked `tests/logging.tftest.hcl` contract verifies both ARN scopes and the declared project group without calling AWS.
+
 For an existing deployment, migrate the four `helm_release` state addresses from the Foundation state into this root during an approved maintenance window before triggering the executor. Do not run both roots against the same releases.
 
 1. Stop the `deploy-foundation-addons` workflow and any Foundation apply. Take versioned S3 backup copies of both state objects, then confirm the old state has exactly these addresses:
