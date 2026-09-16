@@ -22,6 +22,17 @@ locals {
       build:
         commands:
           - set -euo pipefail
+          - required=(ADDONS_SOURCE_BUCKET ADDONS_SOURCE_KEY ADDONS_SOURCE_VERSION_ID ADDONS_EXPECTED_SHA256 ADDONS_MANIFEST_KEY ADDONS_MANIFEST_VERSION_ID ADDONS_EXPECTED_MANIFEST_SHA256 ADDONS_SOURCE_COMMIT)
+          - for variable in "$${required[@]}"; do test -n "$${!variable:-}" || { echo "Missing reviewed addon input: $${variable}"; exit 1; }; done
+          - workdir="$$(mktemp -d)"; export WORKDIR="$${workdir}"; trap 'rm -rf "$${workdir}"' EXIT
+          - aws s3api get-object --bucket "$${ADDONS_SOURCE_BUCKET}" --key "$${ADDONS_SOURCE_KEY}" --version-id "$${ADDONS_SOURCE_VERSION_ID}" "$${workdir}/bundle.zip" >/dev/null
+          - test "$$(sha256sum "$${workdir}/bundle.zip" | awk '{print $1}')" = "$${ADDONS_EXPECTED_SHA256}"
+          - aws s3api get-object --bucket "$${ADDONS_SOURCE_BUCKET}" --key "$${ADDONS_MANIFEST_KEY}" --version-id "$${ADDONS_MANIFEST_VERSION_ID}" "$${workdir}/manifest.json" >/dev/null
+          - test "$$(sha256sum "$${workdir}/manifest.json" | awk '{print $1}')" = "$${ADDONS_EXPECTED_MANIFEST_SHA256}"
+          - pwsh -NoLogo -NoProfile -Command '$m=Get-Content -Raw "$env:WORKDIR/manifest.json" | ConvertFrom-Json; if ($m.schemaVersion -ne 1 -or $m.sourceCommit -cne $env:ADDONS_SOURCE_COMMIT -or $m.artifactSha256 -cne $env:ADDONS_EXPECTED_SHA256) { throw "Foundation addons manifest does not bind the source." }'
+          - unzip -q "$${workdir}/bundle.zip" -d "$${workdir}/release"
+          - test -f "$${workdir}/release/infra/foundation-addons/main.tf"
+          - cd "$${workdir}/release/infra/foundation-addons"
           - cat > foundation-addons.auto.tfvars.json <<'TFVARS'
             ${local.generated_tfvars}
             TFVARS
@@ -33,7 +44,7 @@ locals {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
-      { Sid = "ReadOnlyFoundationAddonsBundle", Effect = "Allow", Action = ["s3:GetObject", "s3:GetObjectVersion"], Resource = "arn:aws:s3:::${var.artifact_bucket_name}/${local.source_key}" },
+      { Sid = "ReadOnlyFoundationAddonsBundle", Effect = "Allow", Action = ["s3:GetObject", "s3:GetObjectVersion"], Resource = ["arn:aws:s3:::${var.artifact_bucket_name}/${local.source_key}", "arn:aws:s3:::${var.artifact_bucket_name}/foundation-addons/manifests/*"] },
       { Sid = "ListOnlyFoundationAddonsState", Effect = "Allow", Action = "s3:ListBucket", Resource = "arn:aws:s3:::${var.state_bucket_name}", Condition = { StringLike = { "s3:prefix" = [local.state_key, "${local.state_key}.tflock"] } } },
       { Sid = "ReadWriteOnlyFoundationAddonsState", Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject"], Resource = "arn:aws:s3:::${var.state_bucket_name}/${local.state_key}" },
       { Sid = "LockOnlyFoundationAddonsState", Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"], Resource = "arn:aws:s3:::${var.state_bucket_name}/${local.state_key}.tflock" },

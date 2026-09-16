@@ -122,6 +122,47 @@ run "rejects_wrong_branch_for_environment" {
   expect_failures = [var.launchers]
 }
 
+run "allows_only_exact_foundation_addons_target_for_k8s_staging" {
+  command = plan
+
+  variables {
+    launchers = {
+      k8s-staging = {
+        repository                        = "example/oficina-k8s-infra"
+        environment                       = "staging"
+        branch                            = "develop"
+        source_prefix                     = "releases/k8s/staging"
+        codebuild_project_arn             = "arn:aws:codebuild:us-east-1:123456789012:project/oficina-k8s-staging"
+        additional_codebuild_project_arns = ["arn:aws:codebuild:us-east-1:123456789012:project/oficina-phase3-foundation-addons"]
+      }
+    }
+  }
+
+  assert {
+    condition     = one([for statement in jsondecode(local.launcher_permission_policies["k8s-staging"]).Statement : statement if statement.Sid == "StartOnlyReviewedAdditionalProject"]).Resource == ["arn:aws:codebuild:us-east-1:123456789012:project/oficina-phase3-foundation-addons"]
+    error_message = "Only the reviewed K8S staging launcher may start the exact foundation-addons project."
+  }
+}
+
+run "rejects_any_other_foundation_addons_target" {
+  command = plan
+
+  variables {
+    launchers = {
+      k8s-staging = {
+        repository                        = "example/oficina-k8s-infra"
+        environment                       = "staging"
+        branch                            = "develop"
+        source_prefix                     = "releases/k8s/staging"
+        codebuild_project_arn             = "arn:aws:codebuild:us-east-1:123456789012:project/oficina-k8s-staging"
+        additional_codebuild_project_arns = ["arn:aws:codebuild:us-east-1:123456789012:project/unreviewed-project"]
+      }
+    }
+  }
+
+  expect_failures = [var.launchers]
+}
+
 run "rejects_oidc_provider_from_another_account" {
   command = plan
 

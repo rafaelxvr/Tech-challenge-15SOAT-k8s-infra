@@ -40,6 +40,9 @@ foreach ($launcher in @($inputs.launchers)) {
         source_prefix         = $launcher.sourcePrefix
         codebuild_project_arn = $launcher.codeBuildProjectArn
     }
+    if ($null -ne $launcher.PSObject.Properties['additionalCodeBuildProjectArns']) {
+        $launchers[$launcher.name].additional_codebuild_project_arns = @($launcher.additionalCodeBuildProjectArns)
+    }
 }
 
 $tfvars = [ordered]@{

@@ -14,7 +14,13 @@ foreach ($required in @(
   'BUILD_GENERAL1_SMALL',
   'image_pull_credentials_type = "SERVICE_ROLE"',
   'vpc_config',
-  'ec2:DescribeSecurityGroups'
+  'ec2:DescribeSecurityGroups',
+  'ADDONS_SOURCE_VERSION_ID',
+  'ADDONS_EXPECTED_SHA256',
+  'ADDONS_MANIFEST_VERSION_ID',
+  'ADDONS_SOURCE_COMMIT',
+  'sha256sum',
+  'release/infra/foundation-addons/main.tf'
 )) {
   if ($terraform -notmatch $required) { throw "Missing private foundation-addons executor contract: $required" }
 }

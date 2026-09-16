@@ -15,11 +15,12 @@ variable "github_oidc_provider_arn" { type = string }
 variable "state_keys" { type = map(string) }
 variable "launchers" {
   type = map(object({
-    repository            = string
-    environment           = string
-    branch                = string
-    source_prefix         = string
-    codebuild_project_arn = string
+    repository                        = string
+    environment                       = string
+    branch                            = string
+    source_prefix                     = string
+    codebuild_project_arn             = string
+    additional_codebuild_project_arns = optional(set(string), [])
   }))
 }
 variable "runtime_role_arns" {

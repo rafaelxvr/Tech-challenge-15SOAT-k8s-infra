@@ -6,7 +6,8 @@ locals {
   staging_source_prefixes_by_repository = {
     for launcher in values(var.launchers) : launcher.repository => launcher.source_prefix if launcher.environment == "staging"
   }
-  launcher_role_arns = toset([for role in aws_iam_role.launcher : role.arn])
+  foundation_addons_project_arn = "arn:aws:codebuild:us-east-1:${var.account_id}:project/oficina-phase3-foundation-addons"
+  launcher_role_arns            = toset([for role in aws_iam_role.launcher : role.arn])
   launcher_trust_policies = {
     for name, launcher in var.launchers : name => jsonencode({
       Version = "2012-10-17"
@@ -27,7 +28,7 @@ locals {
   launcher_permission_policies = {
     for name, launcher in var.launchers : name => jsonencode({
       Version = "2012-10-17"
-      Statement = concat([
+      Statement = flatten(concat([
         {
           Sid      = "UploadOnlyReviewedSourcePrefix"
           Effect   = "Allow"
@@ -60,7 +61,17 @@ locals {
             }
           }
         }
-        ], startswith(launcher.source_prefix, "releases/k8s/") ? [
+        ], length(launcher.additional_codebuild_project_arns) == 0 ? [] : [{
+          Sid      = "UploadOnlyFoundationAddonsArtifacts"
+          Effect   = "Allow"
+          Action   = "s3:PutObject"
+          Resource = "${aws_s3_bucket.artifact.arn}/foundation-addons/*"
+          }], length(launcher.additional_codebuild_project_arns) == 0 ? [] : [{
+          Sid      = "StartOnlyReviewedAdditionalProject"
+          Effect   = "Allow"
+          Action   = ["codebuild:StartBuild", "codebuild:BatchGetBuilds"]
+          Resource = tolist(launcher.additional_codebuild_project_arns)
+        }], startswith(launcher.source_prefix, "releases/k8s/") ? [
         # Platform launches consume a single immutable foundation-output
         # artifact. It is separate from the launcher's writable source prefix.
         {
@@ -79,7 +90,7 @@ locals {
             "${aws_s3_bucket.artifact.arn}/${local.staging_source_prefixes_by_repository[launcher.repository]}/promotions/*"
           ]
         }
-      ] : [])
+      ] : []))
     })
   }
   state_access_policies = {

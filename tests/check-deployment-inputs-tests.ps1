@@ -105,6 +105,11 @@ try {
     $tfvars = Get-Content -LiteralPath $tfvarsPath -Raw | ConvertFrom-Json
     if ($tfvars.account_id -ne '123456789012' -or $tfvars.launchers.'k8s-staging'.source_prefix -ne 'releases/k8s/staging') { throw 'Expected writer to produce usable Terraform variable input.' }
 
+    $addonsLauncher = $valid.Clone(); $addonsLauncher.launchers = @($valid.launchers[0].Clone()); $addonsLauncher.launchers[0].additionalCodeBuildProjectArns = @('arn:aws:codebuild:us-east-1:123456789012:project/oficina-phase3-foundation-addons')
+    & $checker -InputFile (Write-Fixture 'foundation-addons-launcher' $addonsLauncher) -CallerArnForTest 'arn:aws:iam::123456789012:role/phase3-human' | Out-Null
+    $wrongAddonsTarget = $addonsLauncher.Clone(); $wrongAddonsTarget.launchers = @($addonsLauncher.launchers[0].Clone()); $wrongAddonsTarget.launchers[0].additionalCodeBuildProjectArns = @('arn:aws:codebuild:us-east-1:123456789012:project/unreviewed-project')
+    Assert-Rejected 'unreviewed-foundation-addons-target' $wrongAddonsTarget
+
     $wrongSubject = $valid.Clone(); $wrongSubject.launchers = @($valid.launchers[0].Clone()); $wrongSubject.launchers[0].githubSubject = 'repo:example/oficina-k8s-infra:pull_request'
     Assert-Rejected 'wrong-subject' $wrongSubject
 

@@ -60,6 +60,8 @@ try {
     $openEvidence = Join-Path $temp 'open-window.json'
     [ordered]@{ windowStartUtc = $now.AddMinutes(-2).ToString('o'); windowEndUtc = $now.AddMinutes(30).ToString('o'); recordedAtUtc = $now.ToString('o'); accountEvidenceReference = 'reviewed-study-account-evidence'; projectAllowanceUsd = 80; reserveUsd = 20; currentEstimatedSpendUsd = 0 } | ConvertTo-Json | Set-Content -LiteralPath $openEvidence -NoNewline
     & (Join-Path $repoRoot 'scripts/start-deploy.ps1') -Environment staging -SourceZip $bundle -ExpectedSha256 $sourceSha -ReleaseManifest $manifest -ExpectedManifestSha256 $manifestSha -Bucket 'oficina-artifacts-example' -SourcePrefix 'releases/k8s/staging' -ProjectName 'oficina-phase3-oficina-k8s-infra-staging-deploy' -DeployerImageDigest ('b' * 64) -SourceCommit ('a' * 40) -CloudWindowEvidenceFile $openEvidence -TerraformVariablesFile $tfvars -DryRun | Out-Null
+    & (Join-Path $repoRoot 'scripts/start-foundation-addons.ps1') -SourceZip $bundle -ExpectedSha256 $sourceSha -Bucket 'oficina-artifacts-example' -SourceCommit ('a' * 40) -CloudWindowEvidenceFile $openEvidence -DryRun | Out-Null
+    Assert-Throws { & (Join-Path $repoRoot 'scripts/start-foundation-addons.ps1') -SourceZip $bundle -ExpectedSha256 ('c' * 64) -Bucket 'oficina-artifacts-example' -SourceCommit ('a' * 40) -CloudWindowEvidenceFile $openEvidence -DryRun } 'foundation addons launch must reject a mismatched source digest before AWS calls.'
     & (Join-Path $repoRoot 'scripts/deploy.ps1') -Environment staging -ReleaseManifest $manifest -ExpectedSourceSha256 $sourceSha -ExpectedManifestSha256 $manifestSha -SourceCommit ('a' * 40) -ExpectedDeployerImageDigest ('sha256:' + ('b' * 64)) -TerraformVariablesFile $tfvars -TerraformBackendBucket 'oficina-state-example' -TerraformBackendKey 'environments/staging.tfstate' -TerraformBackendLockKey 'environments/staging.tfstate.tflock' -TerraformBackendRegion 'us-east-1' -DryRun | Out-Null
     $backendOverrideNames = @('TERRAFORM_BACKEND_BUCKET', 'TERRAFORM_BACKEND_KEY', 'TERRAFORM_BACKEND_LOCK_KEY', 'TERRAFORM_BACKEND_REGION')
     $backendOverrideOriginal = @{}
@@ -128,6 +130,9 @@ try {
     Assert-Contains $workflow 'stagingPromotionVersionId = $promotion.stagingPromotionVersionId' 'production manifests must bind the immutable staging promotion version.'
     Assert-Contains $workflow 'cancel-in-progress: false' 'deployments must not cancel a running state mutation.'
     Assert-Contains $workflow 'id-token: write' 'release jobs must use short-lived OIDC.'
+    Assert-Contains $workflow 'deploy-foundation-addons:' 'staging must publish and launch the private foundation-addons executor.'
+    Assert-Contains $workflow 'git archive --format=zip --output "$env:RUNNER_TEMP/foundation-addons.zip" $env:GITHUB_SHA infra/foundation-addons' 'the addons workflow must package only the reviewed addons root.'
+    Assert-Contains $workflow 'start-foundation-addons.ps1' 'the addons workflow must bind and launch its versioned source through the reviewed helper.'
     Assert-True (-not $workflow.Contains('AWS_ACCESS_KEY_ID')) 'CI must not use fixed AWS credentials.'
     Assert-True (-not $workflow.Contains('echo $CLOUD_WINDOW_EVIDENCE_JSON')) 'CI must not print cloud-window evidence.'
 
@@ -160,6 +165,8 @@ try {
     Assert-Contains $bootstrap 'codebuild:environment.environmentVariables.name' 'the launcher must constrain CodeBuild environment override names.'
     Assert-Contains $bootstrap 'ReadOnlyVersionedFoundationOutputArtifact' 'Kubernetes launchers must read only the versioned foundation-output prefix.'
     Assert-Contains $bootstrap 'PublishOnlyVersionedFoundationOutputs' 'foundation publication must be restricted to its immutable artifact prefix.'
+    Assert-Contains $bootstrap 'StartOnlyReviewedAdditionalProject' 'the existing staging launcher may receive only its explicit reviewed addons target.'
+    Assert-Contains $bootstrap 'oficina-phase3-foundation-addons' 'the additional launcher target must be the exact foundation-addons project.'
     $deploy = Get-Content -LiteralPath (Join-Path $repoRoot 'scripts/deploy.ps1') -Raw
     Assert-Contains $deploy '-out=$plan' 'Terraform must produce a reviewed plan before apply.'
     Assert-Contains $deploy 'apply -input=false $plan' 'Terraform may apply only its reviewed plan file.'
