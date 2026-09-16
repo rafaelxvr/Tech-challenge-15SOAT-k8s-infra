@@ -25,7 +25,7 @@ GitHub workflow YAML cannot configure repository protection. Before an external 
 | `main` protection | Screenshot or API record showing pull requests, reviews, required checks, and restricted bypass | Direct production pushes or unrestricted bypass cannot promote a release. |
 | `staging` environment | Environment rule permitting only `develop`, with its exact launcher role/configuration | A pull-request job cannot receive a deployment identity. |
 | `production` environment | Environment rule permitting only `main`, with its exact launcher role/configuration | A branch other than `main` cannot receive the production identity. |
-| OIDC trust | Reviewed IAM trust policy with `aud=sts.amazonaws.com` and the exact `repo:OWNER/REPOSITORY:environment:ENVIRONMENT` subject | `pull_request`, wildcard repository, or wildcard environment subjects are rejected. |
+| OIDC trust | Reviewed IAM trust policy with `aud=sts.amazonaws.com` and the exact `repo:OWNER@OWNER_ID/REPOSITORY@REPOSITORY_ID:environment:ENVIRONMENT` subject from reviewed GitHub OIDC configuration | `pull_request`, wildcard repository, or wildcard environment subjects are rejected. |
 | Cloud window | Current JSON evidence accepted by `scripts/check-cloud-window.ps1`; [numeric-budget or explicit study-staging billing acknowledgment](cloud-window-evidence.md) | Closed, stale, over-allowance, incomplete, or incorrectly scoped evidence prevents launcher execution. Billing acknowledgment cannot authorize production. |
 
 Keep the concrete repository owner, account ID, ARNs, bucket names, evidence secret values, and deployment URLs outside this repository until they are confirmed. Do not make a repository public to work around unavailable protection features.

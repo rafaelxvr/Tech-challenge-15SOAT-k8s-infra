@@ -148,15 +148,17 @@ foreach ($launcher in @($launchers)) {
     $environment = [string](Require-Property $launcher 'environment')
     $branch = [string](Require-Property $launcher 'branch')
     $subject = [string](Require-Property $launcher 'githubSubject')
+    $subjectPrefix = [string](Require-Property $launcher 'githubSubjectPrefix')
     $sourcePrefix = [string](Require-Property $launcher 'sourcePrefix')
     $projectArn = [string](Require-Property $launcher 'codeBuildProjectArn')
     $additionalProjects = @()
     if ($null -ne $launcher.PSObject.Properties['additionalCodeBuildProjectArns']) { $additionalProjects = @($launcher.additionalCodeBuildProjectArns) }
 
     if ($name -notmatch '^[a-z0-9-]+$' -or $repository -notmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') { Fail "launcher '$name' has an invalid name or repository." }
-    if ($environment -notin @('staging', 'production')) { Fail "launcher '$name' has an unsupported environment." }
-    if (($environment -eq 'staging' -and $branch -ne 'develop') -or ($environment -eq 'production' -and $branch -ne 'main')) { Fail "launcher '$name' has a branch not approved for its environment." }
-    if ($subject -ne "repo:$repository`:environment:$environment") { Fail "launcher '$name' does not have the exact GitHub environment subject." }
+    if ($environment -cnotin @('staging', 'production')) { Fail "launcher '$name' has an unsupported environment." }
+    if (($environment -ceq 'staging' -and $branch -cne 'develop') -or ($environment -ceq 'production' -and $branch -cne 'main')) { Fail "launcher '$name' has a branch not approved for its environment." }
+    if ($subjectPrefix -cnotmatch '^repo:[A-Za-z0-9_.-]+@[1-9][0-9]*/[A-Za-z0-9_.-]+@[1-9][0-9]*$' -or ($subjectPrefix -creplace '@[0-9]+', '') -cne "repo:$repository") { Fail "launcher '$name' needs the reviewed immutable GitHub subject prefix matching its repository." }
+    if ($subject -cne "${subjectPrefix}:environment:$environment") { Fail "launcher '$name' does not have the exact GitHub environment subject." }
     if ($subject -match ':pull_request$') { Fail "launcher '$name' cannot trust a pull-request subject." }
     if ($sourcePrefix -notmatch '^[a-z0-9][a-z0-9/_-]*$') { Fail "launcher '$name' has an invalid source prefix." }
     if ($projectArn -notmatch "^arn:aws:codebuild:[a-z0-9-]+:${accountId}:project/[A-Za-z0-9_.-]+$") { Fail "launcher '$name' has a CodeBuild project outside accountId or with an invalid ARN." }

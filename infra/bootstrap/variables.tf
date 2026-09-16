@@ -16,6 +16,7 @@ variable "state_keys" { type = map(string) }
 variable "launchers" {
   type = map(object({
     repository                        = string
+    github_subject_prefix             = string
     environment                       = string
     branch                            = string
     source_prefix                     = string

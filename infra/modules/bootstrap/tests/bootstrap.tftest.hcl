@@ -12,6 +12,7 @@ variables {
   launchers = {
     k8s_staging = {
       repository            = "example/oficina-k8s-infra"
+      github_subject_prefix = "repo:example@101/oficina-k8s-infra@202"
       environment           = "staging"
       branch                = "develop"
       source_prefix         = "releases/k8s/staging"
@@ -19,6 +20,7 @@ variables {
     }
     k8s_production = {
       repository            = "example/oficina-k8s-infra"
+      github_subject_prefix = "repo:example@101/oficina-k8s-infra@202"
       environment           = "production"
       branch                = "main"
       source_prefix         = "releases/k8s/production"
@@ -55,7 +57,19 @@ run "trust_subjects_are_environment_scoped" {
   command = plan
 
   assert {
-    condition     = output.launcher_trust_subjects["k8s_staging"] == "repo:example/oficina-k8s-infra:environment:staging"
+    condition = alltrue([for environment in ["staging", "production"] :
+      jsondecode(output.launcher_trust_policies["k8s_${environment}"]).Statement[0].Condition == {
+        StringEquals = {
+          "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
+          "token.actions.githubusercontent.com:sub" = "repo:example@101/oficina-k8s-infra@202:environment:${environment}"
+        }
+      }
+    ])
+    error_message = "Both trust policies must retain exactly the reviewed immutable owner/repository IDs and their environment, using StringEquals and the STS audience only."
+  }
+
+  assert {
+    condition     = output.launcher_trust_subjects["k8s_staging"] == "repo:example@101/oficina-k8s-infra@202:environment:staging"
     error_message = "Staging trust must be an exact environment subject, not a wildcard or pull-request subject."
   }
 
@@ -111,6 +125,7 @@ run "rejects_wrong_branch_for_environment" {
     launchers = {
       invalid = {
         repository            = "example/oficina-k8s-infra"
+        github_subject_prefix = "repo:example@101/oficina-k8s-infra@202"
         environment           = "production"
         branch                = "develop"
         source_prefix         = "releases/k8s/production"
@@ -129,6 +144,7 @@ run "allows_only_exact_foundation_addons_target_for_k8s_staging" {
     launchers = {
       kubernetes-staging = {
         repository                        = "rafaelxvr/Tech-challenge-15SOAT-k8s-infra"
+        github_subject_prefix             = "repo:rafaelxvr@101/Tech-challenge-15SOAT-k8s-infra@202"
         environment                       = "staging"
         branch                            = "develop"
         source_prefix                     = "releases/k8s/staging"
@@ -151,6 +167,7 @@ run "rejects_any_other_foundation_addons_target" {
     launchers = {
       kubernetes-staging = {
         repository                        = "rafaelxvr/Tech-challenge-15SOAT-k8s-infra"
+        github_subject_prefix             = "repo:rafaelxvr@101/Tech-challenge-15SOAT-k8s-infra@202"
         environment                       = "staging"
         branch                            = "develop"
         source_prefix                     = "releases/k8s/staging"
@@ -170,6 +187,7 @@ run "rejects_foundation_addons_from_former_k8s_launcher_name" {
     launchers = {
       k8s-staging = {
         repository                        = "rafaelxvr/Tech-challenge-15SOAT-k8s-infra"
+        github_subject_prefix             = "repo:rafaelxvr@101/Tech-challenge-15SOAT-k8s-infra@202"
         environment                       = "staging"
         branch                            = "develop"
         source_prefix                     = "releases/k8s/staging"
@@ -189,6 +207,7 @@ run "rejects_foundation_addons_from_another_repository" {
     launchers = {
       kubernetes-staging = {
         repository                        = "another-owner/Tech-challenge-15SOAT-k8s-infra"
+        github_subject_prefix             = "repo:another-owner@101/Tech-challenge-15SOAT-k8s-infra@202"
         environment                       = "staging"
         branch                            = "develop"
         source_prefix                     = "releases/k8s/staging"
@@ -218,6 +237,7 @@ run "rejects_codebuild_project_outside_approved_account_or_region" {
     launchers = {
       invalid = {
         repository            = "example/oficina-k8s-infra"
+        github_subject_prefix = "repo:example@101/oficina-k8s-infra@202"
         environment           = "staging"
         branch                = "develop"
         source_prefix         = "releases/k8s/staging"
@@ -237,4 +257,89 @@ run "rejects_runtime_role_from_another_account" {
   }
 
   expect_failures = [var.runtime_role_arns]
+}
+
+run "rejects_legacy_subject_prefix" {
+  command = plan
+  variables {
+    launchers = {
+      invalid = {
+        repository            = "example/oficina-k8s-infra"
+        github_subject_prefix = "repo:example/oficina-k8s-infra"
+        environment           = "staging"
+        branch                = "develop"
+        source_prefix         = "releases/k8s/staging"
+        codebuild_project_arn = "arn:aws:codebuild:us-east-1:123456789012:project/oficina-k8s-staging"
+      }
+    }
+  }
+  expect_failures = [var.launchers]
+}
+
+run "rejects_wildcard_subject_prefix" {
+  command = plan
+  variables {
+    launchers = {
+      invalid = {
+        repository            = "example/oficina-k8s-infra"
+        github_subject_prefix = "repo:example@101/oficina-k8s-infra@*"
+        environment           = "staging"
+        branch                = "develop"
+        source_prefix         = "releases/k8s/staging"
+        codebuild_project_arn = "arn:aws:codebuild:us-east-1:123456789012:project/oficina-k8s-staging"
+      }
+    }
+  }
+  expect_failures = [var.launchers]
+}
+
+run "rejects_another_repository_subject_prefix" {
+  command = plan
+  variables {
+    launchers = {
+      invalid = {
+        repository            = "example/oficina-k8s-infra"
+        github_subject_prefix = "repo:example@101/another-repo@202"
+        environment           = "staging"
+        branch                = "develop"
+        source_prefix         = "releases/k8s/staging"
+        codebuild_project_arn = "arn:aws:codebuild:us-east-1:123456789012:project/oficina-k8s-staging"
+      }
+    }
+  }
+  expect_failures = [var.launchers]
+}
+
+run "rejects_embedded_environment_subject_prefix" {
+  command = plan
+  variables {
+    launchers = {
+      invalid = {
+        repository            = "example/oficina-k8s-infra"
+        github_subject_prefix = "repo:example@101/oficina-k8s-infra@202:environment:production"
+        environment           = "staging"
+        branch                = "develop"
+        source_prefix         = "releases/k8s/staging"
+        codebuild_project_arn = "arn:aws:codebuild:us-east-1:123456789012:project/oficina-k8s-staging"
+      }
+    }
+  }
+  expect_failures = [var.launchers]
+}
+
+run "rejects_missing_owner_id_subject_prefix" {
+  command = plan
+  variables {
+    launchers = {
+      invalid = {
+        repository            = "example/oficina-k8s-infra"
+        github_subject_prefix = "repo:example/oficina-k8s-infra@202"
+        environment           = "staging"
+        branch                = "develop"
+        source_prefix         = "releases/k8s/staging"
+        codebuild_project_arn = "arn:aws:codebuild:us-east-1:123456789012:project/oficina-k8s-staging"
+      }
+    }
+  }
+  expect_failures = [var.launchers]
 }

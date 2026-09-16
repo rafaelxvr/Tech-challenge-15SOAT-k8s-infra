@@ -35,6 +35,7 @@ $launchers = [ordered]@{}
 foreach ($launcher in @($inputs.launchers)) {
     $launchers[$launcher.name] = [ordered]@{
         repository            = $launcher.repository
+        github_subject_prefix = $launcher.githubSubjectPrefix
         environment           = $launcher.environment
         branch                = $launcher.branch
         source_prefix         = $launcher.sourcePrefix

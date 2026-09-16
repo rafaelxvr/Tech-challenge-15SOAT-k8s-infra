@@ -73,7 +73,7 @@ try {
         accountId = '123456789012'; region = 'us-east-1'; operatorArn = 'arn:aws:iam::123456789012:role/phase3-human'
         githubOidcProviderArn = 'arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com'
         stateBucketName = 'oficina-state-example'; artifactBucketName = 'oficina-artifacts-example'
-        launchers = @(@{ name = 'k8s-staging'; repository = 'example/oficina-k8s-infra'; environment = 'staging'; branch = 'develop'; githubSubject = 'repo:example/oficina-k8s-infra:environment:staging'; sourcePrefix = 'releases/k8s/staging'; codeBuildProjectArn = 'arn:aws:codebuild:us-east-1:123456789012:project/oficina-k8s-staging' })
+        launchers = @(@{ name = 'k8s-staging'; repository = 'example/oficina-k8s-infra'; environment = 'staging'; branch = 'develop'; githubSubjectPrefix = 'repo:example@101/oficina-k8s-infra@202'; githubSubject = 'repo:example@101/oficina-k8s-infra@202:environment:staging'; sourcePrefix = 'releases/k8s/staging'; codeBuildProjectArn = 'arn:aws:codebuild:us-east-1:123456789012:project/oficina-k8s-staging' })
     }
     $validPath = Write-Fixture 'valid' $valid
     & $checker -InputFile $validPath -CallerArnForTest 'arn:aws:iam::123456789012:role/phase3-human' | Out-Null
@@ -104,14 +104,45 @@ try {
     & $tfvarsWriter -InputFile $validPath -OutputFile $tfvarsPath -CallerArnForTest 'arn:aws:iam::123456789012:role/phase3-human' | Out-Null
     $tfvars = Get-Content -LiteralPath $tfvarsPath -Raw | ConvertFrom-Json
     if ($tfvars.account_id -ne '123456789012' -or $tfvars.launchers.'k8s-staging'.source_prefix -ne 'releases/k8s/staging') { throw 'Expected writer to produce usable Terraform variable input.' }
+    if ($tfvars.launchers.'k8s-staging'.github_subject_prefix -cne $valid.launchers[0].githubSubjectPrefix) { throw 'Writer must preserve the exact reviewed immutable subject prefix including both IDs.' }
+    $launcherSchema = (Get-Content -LiteralPath (Join-Path $repoRoot 'contracts/deployment-inputs.schema.json') -Raw | ConvertFrom-Json).properties.launchers.items
+    if ($launcherSchema.required -cnotcontains 'githubSubjectPrefix' -or -not [regex]::IsMatch($valid.launchers[0].githubSubjectPrefix, $launcherSchema.properties.githubSubjectPrefix.pattern) -or -not [regex]::IsMatch($valid.launchers[0].githubSubject, $launcherSchema.properties.githubSubject.pattern)) { throw 'Input schema must require and accept the explicit immutable OIDC prefix and full subject.' }
+    if ([regex]::IsMatch('repo:example/oficina-k8s-infra', $launcherSchema.properties.githubSubjectPrefix.pattern) -or [regex]::IsMatch('repo:example/oficina-k8s-infra:environment:staging', $launcherSchema.properties.githubSubject.pattern)) { throw 'Input schema must reject legacy subjects and prefixes.' }
 
-    $addonsLauncher = $valid.Clone(); $addonsLauncher.launchers = @($valid.launchers[0].Clone()); $addonsLauncher.launchers[0].name = 'kubernetes-staging'; $addonsLauncher.launchers[0].repository = 'rafaelxvr/Tech-challenge-15SOAT-k8s-infra'; $addonsLauncher.launchers[0].githubSubject = 'repo:rafaelxvr/Tech-challenge-15SOAT-k8s-infra:environment:staging'; $addonsLauncher.launchers[0].additionalCodeBuildProjectArns = @('arn:aws:codebuild:us-east-1:123456789012:project/oficina-phase3-foundation-addons')
+    foreach ($badSubject in @(
+        'repo:example/oficina-k8s-infra:environment:staging',
+        'repo:example@101/oficina-k8s-infra@999:environment:staging',
+        'repo:example@101/oficina-k8s-infra@202:environment:production',
+        'repo:example@101/oficina-k8s-infra@202:environment:*',
+        'repo:example@101/oficina-k8s-infra@202:pull_request',
+        'repo:Example@101/oficina-k8s-infra@202:environment:staging'
+    )) {
+        $bad = $valid.Clone(); $bad.launchers = @($valid.launchers[0].Clone()); $bad.launchers[0].githubSubject = $badSubject
+        Assert-Rejected 'unreviewed-immutable-subject' $bad
+    }
+    foreach ($badPrefix in @(
+        'repo:example/oficina-k8s-infra',
+        'repo:example@101/oficina-k8s-infra@*',
+        'repo:other@101/oficina-k8s-infra@202',
+        'repo:example@101/other@202',
+        'repo:example@101/oficina-k8s-infra@202:environment:staging',
+        'repo:example@0/oficina-k8s-infra@202'
+    )) {
+        $bad = $valid.Clone(); $bad.launchers = @($valid.launchers[0].Clone()); $bad.launchers[0].githubSubjectPrefix = $badPrefix; $bad.launchers[0].githubSubject = "${badPrefix}:environment:staging"
+        Assert-Rejected 'invalid-immutable-prefix' $bad
+    }
+    $missingPrefix = $valid.Clone(); $missingPrefix.launchers = @($valid.launchers[0].Clone()); $missingPrefix.launchers[0].Remove('githubSubjectPrefix')
+    Assert-Rejected 'no-implicit-prefix-fallback' $missingPrefix
+    $production = $valid.Clone(); $production.launchers = @($valid.launchers[0].Clone()); $production.launchers[0].environment = 'production'; $production.launchers[0].branch = 'main'; $production.launchers[0].githubSubject = 'repo:example@101/oficina-k8s-infra@202:environment:production'
+    & $checker -InputFile (Write-Fixture 'immutable-production' $production) -CallerArnForTest 'arn:aws:iam::123456789012:role/phase3-human' | Out-Null
+
+    $addonsLauncher = $valid.Clone(); $addonsLauncher.launchers = @($valid.launchers[0].Clone()); $addonsLauncher.launchers[0].name = 'kubernetes-staging'; $addonsLauncher.launchers[0].repository = 'rafaelxvr/Tech-challenge-15SOAT-k8s-infra'; $addonsLauncher.launchers[0].githubSubjectPrefix = 'repo:rafaelxvr@303/Tech-challenge-15SOAT-k8s-infra@404'; $addonsLauncher.launchers[0].githubSubject = 'repo:rafaelxvr@303/Tech-challenge-15SOAT-k8s-infra@404:environment:staging'; $addonsLauncher.launchers[0].additionalCodeBuildProjectArns = @('arn:aws:codebuild:us-east-1:123456789012:project/oficina-phase3-foundation-addons')
     & $checker -InputFile (Write-Fixture 'foundation-addons-launcher' $addonsLauncher) -CallerArnForTest 'arn:aws:iam::123456789012:role/phase3-human' | Out-Null
     $wrongAddonsTarget = $addonsLauncher.Clone(); $wrongAddonsTarget.launchers = @($addonsLauncher.launchers[0].Clone()); $wrongAddonsTarget.launchers[0].additionalCodeBuildProjectArns = @('arn:aws:codebuild:us-east-1:123456789012:project/unreviewed-project')
     Assert-Rejected 'unreviewed-foundation-addons-target' $wrongAddonsTarget
     $wrongAddonsLauncher = $addonsLauncher.Clone(); $wrongAddonsLauncher.launchers = @($addonsLauncher.launchers[0].Clone()); $wrongAddonsLauncher.launchers[0].name = 'k8s-staging'
     Assert-Rejected 'unreviewed-foundation-addons-launcher' $wrongAddonsLauncher
-    $wrongAddonsRepository = $addonsLauncher.Clone(); $wrongAddonsRepository.launchers = @($addonsLauncher.launchers[0].Clone()); $wrongAddonsRepository.launchers[0].repository = 'another-owner/Tech-challenge-15SOAT-k8s-infra'; $wrongAddonsRepository.launchers[0].githubSubject = 'repo:another-owner/Tech-challenge-15SOAT-k8s-infra:environment:staging'
+    $wrongAddonsRepository = $addonsLauncher.Clone(); $wrongAddonsRepository.launchers = @($addonsLauncher.launchers[0].Clone()); $wrongAddonsRepository.launchers[0].repository = 'another-owner/Tech-challenge-15SOAT-k8s-infra'; $wrongAddonsRepository.launchers[0].githubSubjectPrefix = 'repo:another-owner@505/Tech-challenge-15SOAT-k8s-infra@404'; $wrongAddonsRepository.launchers[0].githubSubject = 'repo:another-owner@505/Tech-challenge-15SOAT-k8s-infra@404:environment:staging'
     Assert-Rejected 'unreviewed-foundation-addons-repository' $wrongAddonsRepository
 
     $wrongSubject = $valid.Clone(); $wrongSubject.launchers = @($valid.launchers[0].Clone()); $wrongSubject.launchers[0].githubSubject = 'repo:example/oficina-k8s-infra:pull_request'
@@ -134,7 +165,7 @@ try {
     $rootTfvars = Join-Path $tempDirectory 'study-root-bootstrap.tfvars.json'
     & $tfvarsWriter -InputFile $rootStudyPath -OutputFile $rootTfvars -CallerArnForTest 'arn:aws:iam::123456789012:root' -AllowStudyRoot -StudyRootJustification $studyJustification | Out-Null
 
-    $productionRoot = $rootStudy.Clone(); $productionRoot.launchers = @($rootStudy.launchers[0].Clone()); $productionRoot.launchers[0].name = 'k8s-production'; $productionRoot.launchers[0].environment = 'production'; $productionRoot.launchers[0].branch = 'main'; $productionRoot.launchers[0].githubSubject = 'repo:example/oficina-k8s-infra:environment:production'; $productionRoot.launchers[0].sourcePrefix = 'releases/k8s/production'; $productionRoot.launchers[0].codeBuildProjectArn = 'arn:aws:codebuild:us-east-1:123456789012:project/oficina-k8s-production'
+    $productionRoot = $rootStudy.Clone(); $productionRoot.launchers = @($rootStudy.launchers[0].Clone()); $productionRoot.launchers[0].name = 'k8s-production'; $productionRoot.launchers[0].environment = 'production'; $productionRoot.launchers[0].branch = 'main'; $productionRoot.launchers[0].githubSubject = 'repo:example@101/oficina-k8s-infra@202:environment:production'; $productionRoot.launchers[0].sourcePrefix = 'releases/k8s/production'; $productionRoot.launchers[0].codeBuildProjectArn = 'arn:aws:codebuild:us-east-1:123456789012:project/oficina-k8s-production'
     Assert-StudyRootRejected 'study-root-production' $productionRoot $studyJustification -WithSwitch
 
     $vagueJustification = Get-StudyJustification 'Approved task.'
@@ -184,7 +215,7 @@ try {
     try { & $checker -InputFile $validPath -CallerArnForTest 'arn:aws:iam::123456789012:role/another-human' | Out-Null } catch { $differentCallerRejected = $true }
     if (-not $differentCallerRejected) { throw 'Expected same-account but unreviewed STS caller to be rejected.' }
 
-    Write-Output 'PASS: deployment input contract accepts reviewed non-root callers and only a fingerprinted, staging-only study-root exception.'
+    Write-Output 'PASS: checker/schema/writer preserve reviewed immutable OIDC IDs, reject mismatched/legacy/wildcard subjects, and retain reviewed caller/staging-only exception controls.'
 }
 finally {
     Remove-Item -LiteralPath $tempDirectory -Recurse -Force -ErrorAction SilentlyContinue

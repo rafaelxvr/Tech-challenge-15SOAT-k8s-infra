@@ -1,7 +1,7 @@
 locals {
   github_oidc_host = "token.actions.githubusercontent.com"
   launcher_subjects = {
-    for name, launcher in var.launchers : name => "repo:${launcher.repository}:environment:${launcher.environment}"
+    for name, launcher in var.launchers : name => "${launcher.github_subject_prefix}:environment:${launcher.environment}"
   }
   staging_source_prefixes_by_repository = {
     for launcher in values(var.launchers) : launcher.repository => launcher.source_prefix if launcher.environment == "staging"

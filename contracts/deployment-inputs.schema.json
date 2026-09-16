@@ -43,13 +43,14 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["name", "repository", "environment", "branch", "githubSubject", "sourcePrefix", "codeBuildProjectArn"],
+        "required": ["name", "repository", "environment", "branch", "githubSubjectPrefix", "githubSubject", "sourcePrefix", "codeBuildProjectArn"],
         "properties": {
           "name": { "type": "string", "pattern": "^[a-z0-9-]+$" },
           "repository": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" },
           "environment": { "enum": ["staging", "production"] },
           "branch": { "enum": ["develop", "main"] },
-          "githubSubject": { "type": "string", "pattern": "^repo:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+:environment:(staging|production)$" },
+          "githubSubjectPrefix": { "type": "string", "pattern": "^repo:[A-Za-z0-9_.-]+@[1-9][0-9]*/[A-Za-z0-9_.-]+@[1-9][0-9]*$" },
+          "githubSubject": { "type": "string", "pattern": "^repo:[A-Za-z0-9_.-]+@[1-9][0-9]*/[A-Za-z0-9_.-]+@[1-9][0-9]*:environment:(staging|production)$" },
           "sourcePrefix": { "type": "string", "pattern": "^[a-z0-9][a-z0-9/_-]*$" },
           "codeBuildProjectArn": { "type": "string", "pattern": "^arn:aws:codebuild:[a-z0-9-]+:[0-9]{12}:project/[A-Za-z0-9_.-]+$" }
         },

@@ -54,24 +54,27 @@ variable "state_keys" {
 variable "launchers" {
   type = map(object({
     repository                        = string
+    github_subject_prefix             = string
     environment                       = string
     branch                            = string
     source_prefix                     = string
     codebuild_project_arn             = string
     additional_codebuild_project_arns = optional(set(string), [])
   }))
-  description = "GitHub repository/environment launchers. Subjects are derived, never supplied by a pull request."
+  description = "Reviewed immutable GitHub subject prefixes captured from repository OIDC configuration; only the exact approved environment suffix is appended."
 
   validation {
     condition = length(var.launchers) > 0 && alltrue([
       for launcher in values(var.launchers) :
       can(regex("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", launcher.repository)) &&
+      can(regex("^repo:[A-Za-z0-9_.-]+@[1-9][0-9]*/[A-Za-z0-9_.-]+@[1-9][0-9]*$", launcher.github_subject_prefix)) &&
+      replace(launcher.github_subject_prefix, "/@[0-9]+/", "") == "repo:${launcher.repository}" &&
       contains(["staging", "production"], launcher.environment) &&
       can(regex("^[a-z0-9][a-z0-9/_-]*$", launcher.source_prefix)) &&
       can(regex("^arn:aws:codebuild:us-east-1:${var.account_id}:project/[A-Za-z0-9_.-]+$", launcher.codebuild_project_arn)) &&
       alltrue([for arn in launcher.additional_codebuild_project_arns : can(regex("^arn:aws:codebuild:us-east-1:${var.account_id}:project/[A-Za-z0-9_.-]+$", arn))])
     ])
-    error_message = "Each launcher needs a repository, approved environment, source prefix, and exact CodeBuild project ARN."
+    error_message = "Each launcher needs a matching reviewed immutable GitHub subject prefix, repository, approved environment, source prefix, and exact CodeBuild project ARN."
   }
 
   validation {
