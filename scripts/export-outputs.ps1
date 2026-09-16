@@ -39,7 +39,7 @@ if (($Scope -eq 'foundation' -and $Environment -ne 'foundation') -or ($Scope -eq
 
 if ($PSCmdlet.ParameterSetName -eq 'Terraform') {
     if (-not (Test-Path -LiteralPath $TerraformDirectory -PathType Container)) { Fail 'Terraform directory does not exist.' }
-    $raw = & terraform -chdir=$TerraformDirectory output -json
+    $raw = & terraform "-chdir=$TerraformDirectory" output -json
     if ($LASTEXITCODE -ne 0) { Fail 'terraform output did not succeed.' }
 }
 else {

@@ -15,6 +15,7 @@ function Assert-Throws([scriptblock]$Action, [string]$Message) {
 }
 
 try {
+    & (Join-Path $repoRoot 'tests/export-outputs-contract.ps1') | Out-Null
     & (Join-Path $repoRoot 'tests/cloud-window-tests.ps1') | Out-Null
     & (Join-Path $repoRoot 'tests/foundation-addons-buildspec-contract.ps1') | Out-Null
     & (Join-Path $repoRoot 'tests/executor-bootstrap-harness.ps1') | Out-Null
