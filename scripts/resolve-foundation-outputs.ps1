@@ -34,6 +34,21 @@ function OutputValue([object]$Outputs, [string]$Name) {
     if ($null -eq $property -or $null -eq $property.Value) { Fail "foundation artifact is missing '$Name'." }
     return $property.Value
 }
+function Require-ExactPropertyNames([object]$Object, [string[]]$Expected, [string]$Label) {
+    $actualNames = @($Object.PSObject.Properties.Name | Sort-Object)
+    $expectedNames = @($Expected | Sort-Object)
+    if (($actualNames -join ',') -ne ($expectedNames -join ',')) { Fail "$Label does not match the complete schema-v1 field set." }
+}
+function Require-Text([object]$Object, [string]$Name) {
+    $value = [string](OutputValue $Object $Name)
+    if ([string]::IsNullOrWhiteSpace($value)) { Fail "foundation artifact has an empty '$Name'." }
+    return $value
+}
+function Require-StringArray([object]$Object, [string]$Name) {
+    $values = @(OutputValue $Object $Name)
+    if ($values.Count -eq 0 -or @($values | Where-Object { $_ -isnot [string] -or [string]::IsNullOrWhiteSpace([string]$_) }).Count -ne 0) { Fail "foundation artifact '$Name' must be a non-empty string array." }
+    return $values
+}
 
 if (-not (Test-Path -LiteralPath $ReceiptFile -PathType Leaf)) { Fail 'receipt file does not exist.' }
 if (-not (Test-Path -LiteralPath $BaseTerraformVariablesFile -PathType Leaf)) { Fail 'base Terraform variables file does not exist.' }
@@ -69,24 +84,30 @@ try {
     if ((Hash $artifactPath) -cne $expectedSha) { Fail 'foundation artifact digest does not match the versioned receipt.' }
     try { $artifact = Get-Content -LiteralPath $artifactPath -Raw | ConvertFrom-Json }
     catch { Fail 'foundation artifact is not valid JSON.' }
+    Require-ExactPropertyNames $artifact @('schemaVersion', 'environment', 'sourceCommit', 'outputs') 'foundation artifact envelope'
     if ($artifact.schemaVersion -ne 1 -or [string](OutputValue $artifact 'environment') -cne 'foundation' -or [string](OutputValue $artifact 'sourceCommit') -cne $sourceCommit) { Fail 'foundation artifact schema, environment, or source commit is invalid.' }
     $outputs = OutputValue $artifact 'outputs'
+    Require-ExactPropertyNames $outputs @('vpcId', 'privateSubnetIds', 'databaseSubnetIds', 'clusterName', 'clusterOidcProviderArn', 'vpcLinkId', 'backendListenerArns', 'codeBuildProjects') 'foundation artifact outputs'
+    $null = Require-Text $outputs 'vpcId'
+    $null = Require-StringArray $outputs 'privateSubnetIds'
+    $null = Require-StringArray $outputs 'databaseSubnetIds'
+    $null = Require-Text $outputs 'clusterName'
+    $null = Require-Text $outputs 'clusterOidcProviderArn'
+    $null = Require-Text $outputs 'vpcLinkId'
     $listeners = OutputValue $outputs 'backendListenerArns'
     $projects = OutputValue $outputs 'codeBuildProjects'
-    $stagingListener = [string](OutputValue $listeners 'staging')
-    $productionListener = [string](OutputValue $listeners 'production')
-    $stagingRole = [string](OutputValue (OutputValue $projects 'k8s_staging') 'roleArn')
-    $productionRole = [string](OutputValue (OutputValue $projects 'k8s_production') 'roleArn')
-    foreach ($value in @([string](OutputValue $outputs 'vpcId'), [string](OutputValue $outputs 'clusterName'), [string](OutputValue $outputs 'vpcLinkId'), $stagingListener, $productionListener, $stagingRole, $productionRole)) {
-        if ([string]::IsNullOrWhiteSpace($value)) { Fail 'foundation artifact contains an empty platform input.' }
-    }
+    Require-ExactPropertyNames $listeners @('staging', 'production') 'foundation backend listeners'
+    $stagingListener = Require-Text $listeners 'staging'
+    $productionListener = Require-Text $listeners 'production'
+    $stagingRole = Require-Text (OutputValue $projects 'k8s_staging') 'roleArn'
+    $productionRole = Require-Text (OutputValue $projects 'k8s_production') 'roleArn'
 
     $resolved = [ordered]@{}
     foreach ($property in $base.PSObject.Properties) { $resolved[$property.Name] = $property.Value }
     $resolved.foundation_outputs = [ordered]@{
-        vpc_id                = [string](OutputValue $outputs 'vpcId')
-        cluster_name          = [string](OutputValue $outputs 'clusterName')
-        vpc_link_id           = [string](OutputValue $outputs 'vpcLinkId')
+        vpc_id                = Require-Text $outputs 'vpcId'
+        cluster_name          = Require-Text $outputs 'clusterName'
+        vpc_link_id           = Require-Text $outputs 'vpcLinkId'
         backend_listener_arns = [ordered]@{ staging = $stagingListener; production = $productionListener }
         codebuild_projects    = [ordered]@{ k8s_staging = [ordered]@{ roleArn = $stagingRole }; k8s_production = [ordered]@{ roleArn = $productionRole } }
     }

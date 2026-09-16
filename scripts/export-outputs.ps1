@@ -35,6 +35,7 @@ catch { Fail 'allowlist is not valid JSON.' }
 if ($allowlist.schemaVersion -ne 1 -or $allowlist.repository -ne 'oficina-k8s-infra') { Fail 'allowlist has an unsupported schema or owner.' }
 $scopeProperty = $allowlist.scopes.PSObject.Properties[$Scope]
 if ($null -eq $scopeProperty) { Fail "allowlist does not define scope '$Scope'." }
+if (($Scope -eq 'foundation' -and $Environment -ne 'foundation') -or ($Scope -eq 'environment' -and $Environment -eq 'foundation')) { Fail "scope '$Scope' is not coherent with environment '$Environment'." }
 
 if ($PSCmdlet.ParameterSetName -eq 'Terraform') {
     if (-not (Test-Path -LiteralPath $TerraformDirectory -PathType Container)) { Fail 'Terraform directory does not exist.' }
@@ -54,11 +55,16 @@ foreach ($mapping in $scopeProperty.Value.PSObject.Properties) {
     $terraformField = [string]$mapping.Value
     if (Is-Forbidden $publicField -or Is-Forbidden $terraformField) { Fail "allowlist contains forbidden output '$publicField'." }
     $candidate = $terraformOutputs.PSObject.Properties[$terraformField]
-    if ($null -eq $candidate) { continue }
+    # A foundation receipt is a complete schema-v1 contract, never a best
+    # effort subset. Publishing a partial document would let a later trusted
+    # consumer map only the fields it happens to use and hide a broken root.
+    if ($null -eq $candidate -or $null -eq $candidate.Value) { Fail "Terraform output is missing allowlisted '$publicField'." }
     $valueProperty = $candidate.Value.PSObject.Properties['value']
-    $published[$publicField] = if ($null -eq $valueProperty) { $candidate.Value } else { $valueProperty.Value }
+    $value = if ($null -eq $valueProperty) { $candidate.Value } else { $valueProperty.Value }
+    if ($null -eq $value) { Fail "Terraform output '$terraformField' has no value for '$publicField'." }
+    $published[$publicField] = $value
 }
-if ($published.Count -eq 0) { Fail "Terraform output contains no allowlisted values for '$Scope'." }
+if ($published.Count -ne @($scopeProperty.Value.PSObject.Properties).Count) { Fail "Terraform output does not satisfy the complete '$Scope' schema." }
 
 $document = [ordered]@{
     schemaVersion = 1

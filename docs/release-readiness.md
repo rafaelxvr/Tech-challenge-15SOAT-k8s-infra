@@ -43,7 +43,7 @@ Keep the concrete repository owner, account ID, ARNs, bucket names, evidence sec
 }
 ```
 
-Only the mappings in [`contracts/outputs-allowlist.json`](../contracts/outputs-allowlist.json) may appear. The currently implemented Kubernetes owner scopes are:
+Only the mappings in [`contracts/outputs-allowlist.json`](../contracts/outputs-allowlist.json) may appear, and each scope must contain its complete schema-v1 field set. The exporter fails before publication when any allowlisted Terraform output is missing or null; the consumer repeats the same complete foundation-schema check after its named object version and SHA-256 are verified. The currently implemented Kubernetes owner scopes are:
 
 | Scope | Published fields | Consumer boundary |
 | --- | --- | --- |

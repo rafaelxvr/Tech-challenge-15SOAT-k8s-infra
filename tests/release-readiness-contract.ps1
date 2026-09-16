@@ -116,12 +116,33 @@ try {
     & (Join-Path $repoRoot 'scripts/publish-foundation-outputs.ps1') -TerraformOutputFile $rawTerraformOutput -SourceCommit $commit -ArtifactBucket 'oficina-artifacts-example' -ReceiptFile $receipt -Offline -OfflineDirectory $offline | Out-Null
     $publishedReceipt = Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
     Assert-True ($publishedReceipt.artifactKey -eq "releases/k8s/foundation/outputs/$commit.json" -and $publishedReceipt.artifactVersionId -match '^offline-' -and $publishedReceipt.artifactSha256 -match '^[a-f0-9]{64}$') 'publication must retain exact foundation key, immutable version, and digest evidence.'
+    Assert-Throws { & (Join-Path $repoRoot 'scripts/export-outputs.ps1') -TerraformOutputFile $rawTerraformOutput -Scope foundation -Environment staging -SourceCommit $commit -OutputFile (Join-Path $temp 'wrong-scope-environment.json') } 'foundation output export must reject a staging environment label.'
     $baseTfvars = Join-Path $temp 'base.tfvars.json'
     @{ aws_region = 'us-east-1'; name = 'oficina-phase3'; functions_outputs = @{ functionArns = @{ authorizer = 'arn:aws:lambda:us-east-1:123456789012:function:authorizer'; challenge = 'arn:aws:lambda:us-east-1:123456789012:function:challenge'; verification = 'arn:aws:lambda:us-east-1:123456789012:function:verification' } }; gateway_allowed_origins = @('https://example.test') } | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $baseTfvars -NoNewline
     $resolvedTfvars = Join-Path $temp 'resolved.tfvars.json'
     & (Join-Path $repoRoot 'scripts/resolve-foundation-outputs.ps1') -ArtifactBucket 'oficina-artifacts-example' -ReceiptFile $receipt -BaseTerraformVariablesFile $baseTfvars -OutputTerraformVariablesFile $resolvedTfvars -OfflineDirectory $offline | Out-Null
     $resolved = Get-Content -LiteralPath $resolvedTfvars -Raw | ConvertFrom-Json
     Assert-True ($resolved.foundation_outputs.vpc_id -eq 'vpc-123' -and $resolved.foundation_outputs.vpc_link_id -eq 'abc123' -and $resolved.foundation_outputs.backend_listener_arns.staging -match '/staging$' -and $resolved.foundation_outputs.backend_listener_arns.production -match '/production$' -and $resolved.foundation_outputs.codebuild_projects.k8s_staging.roleArn -match ':role/k8s-staging$') 'verified foundation outputs must produce the exact platform foundation_outputs shape.'
+    $artifactFile = Join-Path (Join-Path $offline 'versions') "$($publishedReceipt.artifactVersionId).json"
+    $completeArtifactText = Get-Content -LiteralPath $artifactFile -Raw
+
+    foreach ($entry in $expectedMappings.foundation.GetEnumerator()) {
+        $missingTerraformOutput = Join-Path $temp "missing-$($entry.Value).json"
+        $rawWithoutField = Get-Content -LiteralPath $rawTerraformOutput -Raw | ConvertFrom-Json
+        $rawWithoutField.PSObject.Properties.Remove($entry.Value)
+        $rawWithoutField | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $missingTerraformOutput -NoNewline
+        Assert-Throws { & (Join-Path $repoRoot 'scripts/publish-foundation-outputs.ps1') -TerraformOutputFile $missingTerraformOutput -SourceCommit $commit -ArtifactBucket 'oficina-artifacts-example' -ReceiptFile (Join-Path $temp "missing-$($entry.Value)-receipt.json") -Offline -OfflineDirectory $offline } "export must reject a foundation document without '$($entry.Key)'."
+
+        $missingArtifact = Join-Path $temp "missing-$($entry.Key)-artifact.json"
+        $artifactWithoutField = $completeArtifactText | ConvertFrom-Json
+        $artifactWithoutField.outputs.PSObject.Properties.Remove($entry.Key)
+        $artifactWithoutField | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $missingArtifact -NoNewline
+        $missingReceipt = Join-Path $temp "missing-$($entry.Key)-receipt.json"
+        $missingReceiptDocument = Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
+        $missingReceiptDocument.artifactSha256 = (Get-FileHash -LiteralPath $missingArtifact -Algorithm SHA256).Hash.ToLowerInvariant()
+        $missingReceiptDocument | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $missingReceipt -NoNewline
+        Assert-Throws { & (Join-Path $repoRoot 'scripts/resolve-foundation-outputs.ps1') -ArtifactBucket 'oficina-artifacts-example' -ReceiptFile $missingReceipt -BaseTerraformVariablesFile $baseTfvars -OutputTerraformVariablesFile $resolvedTfvars -ArtifactFileForTest $missingArtifact } "consumer must reject a digest-valid foundation artifact without '$($entry.Key)'."
+    }
 
     $wrongVersionReceipt = Join-Path $temp 'wrong-version-receipt.json'
     $wrongVersion = Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
@@ -129,15 +150,28 @@ try {
     $wrongVersion | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $wrongVersionReceipt -NoNewline
     Assert-Throws { & (Join-Path $repoRoot 'scripts/resolve-foundation-outputs.ps1') -ArtifactBucket 'oficina-artifacts-example' -ReceiptFile $wrongVersionReceipt -BaseTerraformVariablesFile $baseTfvars -OutputTerraformVariablesFile $resolvedTfvars -OfflineDirectory $offline } 'a receipt with a different immutable artifact version must be rejected.'
 
-    $artifactFile = Join-Path (Join-Path $offline 'versions') "$($publishedReceipt.artifactVersionId).json"
     Set-Content -LiteralPath $artifactFile -NoNewline -Value '{"schemaVersion":1,"environment":"foundation","sourceCommit":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","outputs":{}}'
     Assert-Throws { & (Join-Path $repoRoot 'scripts/resolve-foundation-outputs.ps1') -ArtifactBucket 'oficina-artifacts-example' -ReceiptFile $receipt -BaseTerraformVariablesFile $baseTfvars -OutputTerraformVariablesFile $resolvedTfvars -OfflineDirectory $offline } 'a tampered foundation artifact must fail its receipt digest check.'
 
+    $schemaArtifact = Join-Path $temp 'schema-mismatch.json'
+    $schemaArtifactDocument = $completeArtifactText | ConvertFrom-Json
+    $schemaArtifactDocument.schemaVersion = 2
+    $schemaArtifactDocument | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $schemaArtifact -NoNewline
     $schemaReceipt = Join-Path $temp 'schema-receipt.json'
     $schema = Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
-    $schema.artifactSha256 = (Get-FileHash -LiteralPath $artifactFile -Algorithm SHA256).Hash.ToLowerInvariant()
+    $schema.artifactSha256 = (Get-FileHash -LiteralPath $schemaArtifact -Algorithm SHA256).Hash.ToLowerInvariant()
     $schema | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $schemaReceipt -NoNewline
-    Assert-Throws { & (Join-Path $repoRoot 'scripts/resolve-foundation-outputs.ps1') -ArtifactBucket 'oficina-artifacts-example' -ReceiptFile $schemaReceipt -BaseTerraformVariablesFile $baseTfvars -OutputTerraformVariablesFile $resolvedTfvars -OfflineDirectory $offline } 'an artifact with a missing allowlisted platform input must be rejected after digest verification.'
+    Assert-Throws { & (Join-Path $repoRoot 'scripts/resolve-foundation-outputs.ps1') -ArtifactBucket 'oficina-artifacts-example' -ReceiptFile $schemaReceipt -BaseTerraformVariablesFile $baseTfvars -OutputTerraformVariablesFile $resolvedTfvars -ArtifactFileForTest $schemaArtifact } 'a digest-valid schema mismatch must be rejected.'
+
+    $sourceMismatchArtifact = Join-Path $temp 'source-mismatch.json'
+    $sourceMismatchDocument = $completeArtifactText | ConvertFrom-Json
+    $sourceMismatchDocument.sourceCommit = ('b' * 40)
+    $sourceMismatchDocument | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $sourceMismatchArtifact -NoNewline
+    $sourceMismatchReceipt = Join-Path $temp 'source-mismatch-receipt.json'
+    $sourceMismatch = Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
+    $sourceMismatch.artifactSha256 = (Get-FileHash -LiteralPath $sourceMismatchArtifact -Algorithm SHA256).Hash.ToLowerInvariant()
+    $sourceMismatch | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $sourceMismatchReceipt -NoNewline
+    Assert-Throws { & (Join-Path $repoRoot 'scripts/resolve-foundation-outputs.ps1') -ArtifactBucket 'oficina-artifacts-example' -ReceiptFile $sourceMismatchReceipt -BaseTerraformVariablesFile $baseTfvars -OutputTerraformVariablesFile $resolvedTfvars -ArtifactFileForTest $sourceMismatchArtifact } 'a digest-valid source commit mismatch must be rejected.'
 
     $wrongScopeArtifact = Join-Path $temp 'wrong-scope.json'
     @{ schemaVersion = 1; environment = 'staging'; sourceCommit = $commit; outputs = @{ vpcId = 'vpc-123'; clusterName = 'oficina-phase3'; vpcLinkId = 'abc123'; backendListenerArns = @{ staging = 'listener-staging'; production = 'listener-production' }; codeBuildProjects = @{ k8s_staging = @{ roleArn = 'role-staging' }; k8s_production = @{ roleArn = 'role-production' } } } } | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $wrongScopeArtifact -NoNewline
