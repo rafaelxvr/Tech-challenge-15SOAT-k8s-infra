@@ -37,13 +37,13 @@ function Wait-EksUpdate {
         $update = Invoke-EksJson -Arguments @('eks', 'describe-update', '--name', $ClusterName, '--nodegroup-name', $NodeGroupName, '--update-id', $UpdateId)
         switch ($update.update.status) {
             'Successful' { return }
-            'Failed' { throw "EKS update failed for node group $NodeGroupName: $(Get-SafeUpdateDetails -Update $update)." }
-            'Cancelled' { throw "EKS update was cancelled for node group $NodeGroupName: $(Get-SafeUpdateDetails -Update $update)." }
+            'Failed' { throw "EKS update failed for node group ${NodeGroupName}: $(Get-SafeUpdateDetails -Update $update)." }
+            'Cancelled' { throw "EKS update was cancelled for node group ${NodeGroupName}: $(Get-SafeUpdateDetails -Update $update)." }
             'InProgress' { Start-Sleep -Seconds 5 }
-            default { throw "EKS update returned an unexpected terminal state for node group $NodeGroupName: $(Get-SafeUpdateDetails -Update $update)." }
+            default { throw "EKS update returned an unexpected terminal state for node group ${NodeGroupName}: $(Get-SafeUpdateDetails -Update $update)." }
         }
     }
-    throw "EKS update did not reach Successful within $MaxPolls polls for node group $NodeGroupName: $(Get-SafeUpdateDetails -Update $update)."
+    throw "EKS update did not reach Successful within $MaxPolls polls for node group ${NodeGroupName}: $(Get-SafeUpdateDetails -Update $update)."
 }
 
 function Get-SafeUpdateDetails {

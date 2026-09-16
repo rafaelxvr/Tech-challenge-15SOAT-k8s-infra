@@ -3,7 +3,15 @@ Set-StrictMode -Version Latest
 
 $moduleRoot = Split-Path -Parent $PSScriptRoot
 $terraform = Get-Content -Raw -LiteralPath (Join-Path $moduleRoot 'main.tf')
-$executor = Get-Content -Raw -LiteralPath (Join-Path $moduleRoot 'scripts/apply-minimal-node-update.ps1')
+$executorPath = Join-Path $moduleRoot 'scripts/apply-minimal-node-update.ps1'
+$executor = Get-Content -Raw -LiteralPath $executorPath
+
+$tokens = $null
+$parseErrors = $null
+[System.Management.Automation.Language.Parser]::ParseFile($executorPath, [ref]$tokens, [ref]$parseErrors) | Out-Null
+if ($parseErrors.Count -gt 0) {
+    throw "The node-update executor must parse before Terraform local-exec runs: $($parseErrors[0].Message)"
+}
 
 function Assert-Contains {
     param([string]$Text, [string]$Pattern, [string]$Message)
