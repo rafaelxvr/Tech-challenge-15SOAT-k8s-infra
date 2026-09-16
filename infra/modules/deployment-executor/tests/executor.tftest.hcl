@@ -58,8 +58,16 @@ run "eight_bounded_private_deployers" {
     error_message = "Each CodeBuild role must contain only the provider capabilities required by its reviewed Terraform owner."
   }
   assert {
-    condition     = local.codebuild_vpc_project_actions == ["ec2:DescribeSecurityGroups"]
-    error_message = "Every VPC-configured CodeBuild service role must be able to describe its reviewed security groups during project creation."
+    condition = local.codebuild_vpc_project_actions == [
+      "ec2:CreateNetworkInterface",
+      "ec2:DescribeDhcpOptions",
+      "ec2:DescribeNetworkInterfaces",
+      "ec2:DeleteNetworkInterface",
+      "ec2:DescribeSubnets",
+      "ec2:DescribeSecurityGroups",
+      "ec2:DescribeVpcs"
+    ]
+    error_message = "Every VPC-configured CodeBuild service role must retain exactly the documented VPC network-interface actions."
   }
   assert {
     condition = alltrue([

@@ -4,11 +4,25 @@ Set-StrictMode -Version Latest
 $moduleRoot = Split-Path -Parent $PSScriptRoot
 $terraform = Get-Content -Raw -LiteralPath (Join-Path $moduleRoot 'main.tf')
 
-if ($terraform -notmatch 'codebuild_vpc_project_actions\s*=\s*\["ec2:DescribeSecurityGroups"\]') {
-    throw 'VPC-configured CodeBuild projects must retain the required ec2:DescribeSecurityGroups action.'
+$requiredActions = @(
+    'ec2:CreateNetworkInterface',
+    'ec2:DescribeDhcpOptions',
+    'ec2:DescribeNetworkInterfaces',
+    'ec2:DeleteNetworkInterface',
+    'ec2:DescribeSubnets',
+    'ec2:DescribeSecurityGroups',
+    'ec2:DescribeVpcs'
+)
+foreach ($action in $requiredActions) {
+    if ($terraform -notmatch [regex]::Escape('"' + $action + '"')) {
+        throw "VPC-configured CodeBuild projects must retain the documented $action action."
+    }
 }
-if ($terraform -notmatch '(?s)Sid\s*=\s*"DescribeSecurityGroupsForPrivateBuild".*?Action\s*=\s*local\.codebuild_vpc_project_actions.*?Resource\s*=\s*"\*"') {
-    throw 'The CodeBuild VPC security-group describe permission must be in the common service-role policy with the required IAM resource scope.'
+if ($terraform -match 'ec2:\*') {
+    throw 'The CodeBuild VPC policy must not grant wildcard EC2 actions.'
+}
+if ($terraform -notmatch '(?s)Sid\s*=\s*"CodeBuildVpcNetworkInterfaces".*?Action\s*=\s*local\.codebuild_vpc_project_actions.*?Resource\s*=\s*"\*"') {
+    throw 'The CodeBuild VPC network-interface permissions must be in the common service-role policy with the documented IAM resource scope.'
 }
 
 Write-Output 'deployment executor VPC CodeBuild permission contract: PASS'

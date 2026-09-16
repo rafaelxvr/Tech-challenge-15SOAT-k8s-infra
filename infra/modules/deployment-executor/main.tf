@@ -4,9 +4,18 @@ locals {
     for key, deployment in var.deployments : key => "${var.name}-${replace(deployment.repository, "/", "-")}-${deployment.environment}-deploy"
   }
   eks_describe_actions = ["eks:DescribeCluster"]
-  # Required by CodeBuild while creating any project with vpc_config; describe
-  # actions cannot be scoped to a particular security-group ARN in IAM.
-  codebuild_vpc_project_actions = ["ec2:DescribeSecurityGroups"]
+  # AWS requires these service-role permissions for CodeBuild projects with
+  # vpc_config. EC2 network-interface actions do not support narrower IAM
+  # resource scoping for this CodeBuild lifecycle.
+  codebuild_vpc_project_actions = [
+    "ec2:CreateNetworkInterface",
+    "ec2:DescribeDhcpOptions",
+    "ec2:DescribeNetworkInterfaces",
+    "ec2:DeleteNetworkInterface",
+    "ec2:DescribeSubnets",
+    "ec2:DescribeSecurityGroups",
+    "ec2:DescribeVpcs"
+  ]
   eks_node_group_update_actions = [
     "eks:DescribeNodegroup",
     "eks:DescribeUpdate",
@@ -214,10 +223,10 @@ locals {
           Action   = ["logs:CreateLogStream", "logs:PutLogEvents"]
           Resource = "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:/aws/codebuild/${local.project_names[key]}:log-stream:*"
         },
-        # CodeBuild validates VPC security groups while creating each private executor.
-        # Describe actions do not support resource-level scoping in IAM.
+        # CodeBuild creates and removes VPC network interfaces for each private executor.
+        # These documented EC2 actions do not support narrower resource scoping in IAM.
         {
-          Sid      = "DescribeSecurityGroupsForPrivateBuild"
+          Sid      = "CodeBuildVpcNetworkInterfaces"
           Effect   = "Allow"
           Action   = local.codebuild_vpc_project_actions
           Resource = "*"
