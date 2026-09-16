@@ -1,0 +1,10 @@
+output "schemaVersion" { value = 1 }
+output "environment" { value = "staging" }
+output "authorizerId" { value = module.functions.authorizer_arn }
+output "customerPublicKeys" { value = module.functions.customer_public_keys_secret_arn }
+output "notificationQueueUrl" { value = module.functions.notification_queue_url }
+output "notificationQueueArn" { value = module.functions.notification_queue_arn }
+output "notificationDlqArn" { value = module.functions.notification_dlq_arn }
+output "functionArns" { value = module.functions.function_arns }
+output "artifactSha256" { value = module.functions.artifact_sha256 }
+output "plannedMonthlyGbSeconds" { value = module.functions.planned_monthly_gb_seconds }
