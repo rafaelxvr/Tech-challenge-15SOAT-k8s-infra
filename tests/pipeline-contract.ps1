@@ -15,6 +15,9 @@ function Assert-Throws([scriptblock]$Action, [string]$Message) {
 }
 
 try {
+    & (Join-Path $repoRoot 'tests/executor-bootstrap-harness.ps1') | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'ASSERTION FAILED: rendered CodeBuild bootstrap harness failed.' }
+
     $now = [datetime]::UtcNow
     $evidence = Join-Path $temp 'window.json'
     [ordered]@{

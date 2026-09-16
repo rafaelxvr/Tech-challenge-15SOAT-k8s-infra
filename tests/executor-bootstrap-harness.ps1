@@ -1,0 +1,134 @@
+[CmdletBinding()]
+param()
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
+function Fail([string]$Message) { throw "Executor bootstrap harness failed: $Message" }
+function Assert-True([bool]$Condition, [string]$Message) { if (-not $Condition) { Fail $Message } }
+function Hash([string]$Path) { return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() }
+function Write-BashSingleQuoted([string]$Value) {
+    if ($Value.Contains("'")) { Fail 'Harness paths must not contain a single quote.' }
+    return "'$Value'"
+}
+
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$moduleRoot = Join-Path $repoRoot 'infra/modules/deployment-executor'
+$gitBash = 'C:/Program Files/Git/bin/bash.exe'
+if (-not (Test-Path -LiteralPath $gitBash -PathType Leaf)) { Fail 'Git Bash is required for the local CodeBuild bootstrap harness.' }
+$temp = Join-Path ([System.IO.Path]::GetTempPath()) "oficina-executor-harness-$([guid]::NewGuid())"
+
+try {
+    New-Item -ItemType Directory -Path $temp | Out-Null
+    $deployments = @{
+        k8s_staging          = @{ repository = 'oficina-k8s-infra'; environment = 'staging'; source_prefix = 'releases/k8s/staging'; terraform_state_key = 'environments/staging.tfstate'; deployment_mode = 'plan'; terraform_variables_path = '/tmp/oficina/k8s_staging.tfvars.json' }
+        k8s_production       = @{ repository = 'oficina-k8s-infra'; environment = 'production'; source_prefix = 'releases/k8s/production'; terraform_state_key = 'environments/production.tfstate'; deployment_mode = 'plan'; terraform_variables_path = '/tmp/oficina/k8s_production.tfvars.json' }
+        db_staging           = @{ repository = 'oficina-db-infra'; environment = 'staging'; source_prefix = 'releases/db/staging'; terraform_state_key = 'db/staging.tfstate'; deployment_mode = 'plan'; terraform_variables_path = '/tmp/oficina/db_staging.tfvars.json' }
+        db_production        = @{ repository = 'oficina-db-infra'; environment = 'production'; source_prefix = 'releases/db/production'; terraform_state_key = 'db/production.tfstate'; deployment_mode = 'plan'; terraform_variables_path = '/tmp/oficina/db_production.tfvars.json' }
+        functions_staging    = @{ repository = 'oficina-functions'; environment = 'staging'; source_prefix = 'releases/functions/staging'; terraform_state_key = 'functions/staging.tfstate'; deployment_mode = 'plan'; terraform_variables_path = '/tmp/oficina/functions_staging.tfvars.json' }
+        functions_production = @{ repository = 'oficina-functions'; environment = 'production'; source_prefix = 'releases/functions/production'; terraform_state_key = 'functions/production.tfstate'; deployment_mode = 'plan'; terraform_variables_path = '/tmp/oficina/functions_production.tfvars.json' }
+        app_staging          = @{ repository = 'oficina-app'; environment = 'staging'; source_prefix = 'releases/app/staging'; terraform_state_key = 'app/staging.tfstate'; deployment_mode = 'plan'; terraform_variables_path = '/tmp/oficina/app_staging.tfvars.json' }
+        app_production       = @{ repository = 'oficina-app'; environment = 'production'; source_prefix = 'releases/app/production'; terraform_state_key = 'app/production.tfstate'; deployment_mode = 'plan'; terraform_variables_path = '/tmp/oficina/app_production.tfvars.json' }
+    }
+    $variables = @{
+        name = 'oficina-phase3'; aws_region = 'us-east-1'; account_id = '123456789012'; vpc_id = 'vpc-12345678'
+        cluster_arn = 'arn:aws:eks:us-east-1:123456789012:cluster/oficina-phase3'
+        node_group_arns = @('arn:aws:eks:us-east-1:123456789012:nodegroup/oficina-phase3/workers-a/example')
+        kubernetes_repository = 'oficina-k8s-infra'; artifact_bucket_name = 'oficina-phase3-artifacts-example'; state_bucket_name = 'oficina-phase3-state-example'
+        private_subnet_ids = @('subnet-a'); security_group_ids = @('sg-codebuild')
+        deployer_image_digest = 'sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'; deployments = $deployments
+    }
+    $tfvars = Join-Path $temp 'executor.tfvars.json'
+    $variables | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $tfvars -NoNewline
+    $expression = 'jsonencode(local.rendered_deployment_buildspecs["k8s_staging"])'
+    $renderedJson = $expression | & terraform "-chdir=$moduleRoot" console -no-color "-var-file=$tfvars" 2>&1
+    if ($LASTEXITCODE -ne 0) { Fail "Terraform could not render the CodeBuild buildspec: $($renderedJson -join [Environment]::NewLine)" }
+    $buildspec = ($renderedJson -join [Environment]::NewLine) | ConvertFrom-Json
+    if ($buildspec.StartsWith('"')) { $buildspec = $buildspec | ConvertFrom-Json }
+    Assert-True ($buildspec -match 'reviewed_backend_key="environments/staging\.tfstate"') 'Terraform did not render the staging backend key into the CodeBuild buildspec.'
+
+    $buildspecLines = $buildspec -split "`r?`n"
+    $start = [array]::FindIndex([string[]]$buildspecLines, [Predicate[string]]{ param($line) $line -match '^\s+set -euo pipefail$' })
+    if ($start -lt 0) { Fail 'Rendered CodeBuild buildspec has no shell command block.' }
+    $bootstrap = (@($buildspecLines[$start..($buildspecLines.Length - 1)] | ForEach-Object { $_ -replace '^\s{12}', '' }) -join "`n")
+    $bootstrapPath = Join-Path $temp 'rendered-bootstrap.sh'
+    Set-Content -LiteralPath $bootstrapPath -NoNewline -Value $bootstrap
+
+    $bundleRoot = Join-Path $temp 'bundle-root'
+    New-Item -ItemType Directory -Path $bundleRoot | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $bundleRoot 'scripts') | Out-Null
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'scripts/deploy.ps1') -Destination (Join-Path $bundleRoot 'scripts/deploy.ps1')
+    # deploy.ps1 only needs this root to exist before the harness Terraform
+    # stub captures init/validate/plan; copying provider caches is unnecessary.
+    New-Item -ItemType Directory -Path (Join-Path $bundleRoot 'infra/environments/staging') -Force | Out-Null
+    $bundle = Join-Path $temp 'bundle.zip'
+    Compress-Archive -Path (Join-Path $bundleRoot '*') -DestinationPath $bundle
+    $sourceSha = Hash $bundle
+    $manifest = Join-Path $temp 'release-manifest.json'
+    @{ schemaVersion = 1; environment = 'staging'; sourceCommit = ('a' * 40); artifactSha256 = $sourceSha; deployerImageDigest = ('sha256:' + ('b' * 64)); contractVersion = 'phase3-v2'; migrationVersion = 'platform-v1'; promotedFromStaging = $false } | ConvertTo-Json | Set-Content -LiteralPath $manifest -NoNewline
+    $manifestSha = Hash $manifest
+    $tfvarsInput = Join-Path $temp 'terraform.tfvars.json'; '{}' | Set-Content -LiteralPath $tfvarsInput -NoNewline
+    $tfvarsSha = Hash $tfvarsInput
+
+    $bin = Join-Path $temp 'bin'; New-Item -ItemType Directory -Path $bin | Out-Null
+    $awsStub = @'
+#!/usr/bin/env bash
+set -euo pipefail
+key=""
+for ((i=1; i<=$#; i++)); do
+  if [ "${!i}" = "--key" ]; then j=$((i+1)); key="${!j}"; fi
+done
+destination="${!#}"
+case "$key" in
+  "$SOURCE_KEY") source="$HARNESS_BUNDLE" ;;
+  "$RELEASE_MANIFEST_KEY") source="$HARNESS_MANIFEST" ;;
+  "$TFVARS_OBJECT_KEY") source="$HARNESS_TFVARS" ;;
+  *) echo "unexpected mock S3 key: $key" >&2; exit 64 ;;
+esac
+mkdir -p "$(dirname "$destination")"
+cp "$source" "$destination"
+'@
+    Set-Content -LiteralPath (Join-Path $bin 'aws') -NoNewline -Value $awsStub
+    $terraformStub = @'
+@echo off
+echo %*>> "%CAPTURE_FILE%"
+exit /b 0
+'@
+    Set-Content -LiteralPath (Join-Path $bin 'terraform.cmd') -NoNewline -Value $terraformStub
+    $capture = Join-Path $temp 'terraform-capture.txt'
+    $scriptPath = $bootstrapPath.Replace('\', '/')
+    $binPath = $bin.Replace('\', '/')
+    $script = 'export PATH="$(cygpath -u ' + (Write-BashSingleQuoted $binPath) + '):$PATH"' + "`n" + 'exec /usr/bin/bash "$(cygpath -u ' + (Write-BashSingleQuoted $scriptPath) + ')"' + "`n"
+    $runner = Join-Path $temp 'run-rendered-bootstrap.sh'; Set-Content -LiteralPath $runner -NoNewline -Value $script
+
+    $overrideNames = @('DEPLOY_ENVIRONMENT', 'TERRAFORM_BACKEND_BUCKET', 'TERRAFORM_BACKEND_KEY', 'TERRAFORM_BACKEND_LOCK_KEY', 'TERRAFORM_BACKEND_REGION', 'SOURCE_BUCKET', 'SOURCE_KEY', 'SOURCE_VERSION_ID', 'EXPECTED_SHA256', 'RELEASE_MANIFEST_KEY', 'RELEASE_MANIFEST_VERSION_ID', 'EXPECTED_MANIFEST_SHA256', 'SOURCE_COMMIT', 'DEPLOYER_IMAGE_DIGEST', 'DEPLOYMENT_TFVARS_PATH', 'DEPLOYMENT_MODE', 'TFVARS_OBJECT_KEY', 'TFVARS_VERSION_ID', 'EXPECTED_TFVARS_SHA256', 'HARNESS_BUNDLE', 'HARNESS_MANIFEST', 'HARNESS_TFVARS', 'CAPTURE_FILE')
+    $original = @{}
+    foreach ($name in $overrideNames) { $original[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
+    try {
+        $env:DEPLOY_ENVIRONMENT = 'staging'; $env:TERRAFORM_BACKEND_BUCKET = 'attacker-state-example'; $env:TERRAFORM_BACKEND_KEY = 'environments/production.tfstate'; $env:TERRAFORM_BACKEND_LOCK_KEY = 'environments/production.tfstate.tflock'; $env:TERRAFORM_BACKEND_REGION = 'eu-west-1'
+        $env:SOURCE_BUCKET = 'harness-artifacts'; $env:SOURCE_KEY = 'releases/k8s/staging/bundle.zip'; $env:SOURCE_VERSION_ID = 'bundle-version'; $env:EXPECTED_SHA256 = $sourceSha
+        $env:RELEASE_MANIFEST_KEY = ('releases/k8s/staging/manifests/' + ('a' * 40) + '.json'); $env:RELEASE_MANIFEST_VERSION_ID = 'manifest-version'; $env:EXPECTED_MANIFEST_SHA256 = $manifestSha
+        $env:SOURCE_COMMIT = ('a' * 40); $env:DEPLOYER_IMAGE_DIGEST = ('sha256:' + ('b' * 64)); $env:DEPLOYMENT_TFVARS_PATH = '/tmp/oficina/k8s_staging.tfvars.json'; $env:DEPLOYMENT_MODE = 'plan'
+        $env:TFVARS_OBJECT_KEY = 'releases/k8s/staging/config/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.tfvars.json'; $env:TFVARS_VERSION_ID = 'tfvars-version'; $env:EXPECTED_TFVARS_SHA256 = $tfvarsSha
+        $env:HARNESS_BUNDLE = $bundle; $env:HARNESS_MANIFEST = $manifest; $env:HARNESS_TFVARS = $tfvarsInput; $env:CAPTURE_FILE = $capture
+        & $gitBash $runner
+        Assert-True ($LASTEXITCODE -eq 0) 'The rendered bootstrap did not complete with attacker backend overrides present.'
+        $terraformCalls = Get-Content -LiteralPath $capture -Raw
+        Assert-True ($terraformCalls -match 'init.*-backend-config=bucket=oficina-phase3-state-example.*-backend-config=key=environments/staging.tfstate.*-backend-config=region=us-east-1') 'The rendered bootstrap did not pass its literal reviewed backend arguments through deploy.ps1 to terraform init.'
+
+        Remove-Item -LiteralPath $capture -Force
+        $env:DEPLOY_ENVIRONMENT = 'production'
+        & $gitBash $runner 2>$null
+        Assert-True ($LASTEXITCODE -ne 0) 'A mismatched DEPLOY_ENVIRONMENT override must fail in the rendered bootstrap.'
+        Assert-True (-not (Test-Path -LiteralPath $capture -PathType Leaf)) 'A mismatched DEPLOY_ENVIRONMENT override reached Terraform.'
+    }
+    finally {
+        foreach ($name in $overrideNames) {
+            if ($null -eq $original[$name]) { Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue }
+            else { Set-Item -LiteralPath "Env:$name" -Value $original[$name] }
+        }
+    }
+    Write-Output 'PASS: Terraform-rendered CodeBuild bootstrap ignores backend StartBuild overrides and rejects mismatched environments before Terraform.'
+    exit 0
+}
+finally { Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue }

@@ -178,6 +178,18 @@ locals {
             if [ "$${DEPLOYMENT_MODE}" = "apply" ]; then apply_switch=(-ApplyReviewedPlan); fi
             pwsh -NoLogo -NoProfile -File "$${workdir}/release/scripts/deploy.ps1" -Environment "$${reviewed_environment}" -ReleaseManifest "$${workdir}/release-manifest.json" -ExpectedSourceSha256 "$${EXPECTED_SHA256}" -ExpectedManifestSha256 "$${EXPECTED_MANIFEST_SHA256}" -SourceCommit "$${SOURCE_COMMIT}" -ExpectedDeployerImageDigest "$${DEPLOYER_IMAGE_DIGEST}" -TerraformVariablesFile "$${DEPLOYMENT_TFVARS_PATH}" -TerraformBackendBucket "$${reviewed_backend_bucket}" -TerraformBackendKey "$${reviewed_backend_key}" -TerraformBackendLockKey "$${reviewed_backend_lock_key}" -TerraformBackendRegion "$${reviewed_backend_region}" "$${apply_switch[@]}"
   YAML
+  # This is the exact buildspec passed to each aws_codebuild_project.deploy
+  # source block below. Tests render this local through Terraform, then run
+  # the resulting shell bootstrap with mocked process dependencies.
+  rendered_deployment_buildspecs = {
+    for key, deployment in var.deployments : key => replace(replace(replace(replace(replace(
+      local.inline_deployment_buildspec_template,
+      "__DEPLOYMENT_ENVIRONMENT__", deployment.environment),
+      "__TERRAFORM_BACKEND_BUCKET__", var.state_bucket_name),
+      "__TERRAFORM_BACKEND_KEY__", deployment.terraform_state_key),
+      "__TERRAFORM_BACKEND_LOCK_KEY__", "${deployment.terraform_state_key}.tflock"),
+    "__TERRAFORM_BACKEND_REGION__", var.aws_region)
+  }
 }
 
 resource "aws_ecr_repository" "deployer" {
@@ -227,13 +239,7 @@ resource "aws_codebuild_project" "deploy" {
     location = "${var.artifact_bucket_name}/${each.value.source_prefix}/bundle.zip"
     # State selection is rendered into this Terraform-owned buildspec. A
     # StartBuild environmentVariablesOverride cannot alter these literals.
-    buildspec = replace(replace(replace(replace(replace(
-      local.inline_deployment_buildspec_template,
-      "__DEPLOYMENT_ENVIRONMENT__", each.value.environment),
-      "__TERRAFORM_BACKEND_BUCKET__", var.state_bucket_name),
-      "__TERRAFORM_BACKEND_KEY__", each.value.terraform_state_key),
-      "__TERRAFORM_BACKEND_LOCK_KEY__", "${each.value.terraform_state_key}.tflock"),
-    "__TERRAFORM_BACKEND_REGION__", var.aws_region)
+    buildspec = local.rendered_deployment_buildspecs[each.key]
   }
   environment {
     compute_type                = "BUILD_GENERAL1_SMALL"

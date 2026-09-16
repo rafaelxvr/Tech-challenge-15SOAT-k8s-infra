@@ -46,6 +46,7 @@ run "eight_bounded_private_deployers" {
   }
   assert {
     condition = alltrue([for key, project in aws_codebuild_project.deploy :
+      project.source[0].buildspec == local.rendered_deployment_buildspecs[key] &&
       contains([for variable in project.environment[0].environment_variable : variable.name], "DEPLOYMENT_TFVARS_PATH") &&
       contains([for variable in project.environment[0].environment_variable : variable.name], "DEPLOYMENT_MODE") &&
       !contains([for variable in project.environment[0].environment_variable : variable.name], "TERRAFORM_BACKEND_BUCKET") &&

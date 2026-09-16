@@ -65,8 +65,22 @@ run "trust_subjects_are_environment_scoped" {
   }
 
   assert {
-    condition     = can(regex("DenyBuildspecOverride", local.launcher_permission_policies["k8s_staging"])) && can(regex("codebuild:source.buildspec", local.launcher_permission_policies["k8s_staging"]))
-    error_message = "Launchers must deny StartBuild buildspecOverride so Terraform-owned bootstrap literals cannot be replaced."
+    condition = (
+      one([for statement in jsondecode(local.launcher_permission_policies["k8s_staging"]).Statement : statement if statement.Sid == "DenyBuildspecOverride"]).Effect == "Deny" &&
+      one([for statement in jsondecode(local.launcher_permission_policies["k8s_staging"]).Statement : statement if statement.Sid == "DenyBuildspecOverride"]).Action == "codebuild:StartBuild" &&
+      one([for statement in jsondecode(local.launcher_permission_policies["k8s_staging"]).Statement : statement if statement.Sid == "DenyBuildspecOverride"]).Resource == var.launchers["k8s_staging"].codebuild_project_arn &&
+      one([for statement in jsondecode(local.launcher_permission_policies["k8s_staging"]).Statement : statement if statement.Sid == "DenyBuildspecOverride"]).Condition.Null["codebuild:source.buildspec"] == "false"
+    )
+    error_message = "The parsed launcher IAM policy must deny only StartBuild requests that supply buildspecOverride, on its exact project."
+  }
+
+  assert {
+    condition = (
+      contains(one([for statement in jsondecode(local.launcher_permission_policies["k8s_staging"]).Statement : statement if statement.Sid == "StartOnlyItsDeploymentProject"]).Action, "codebuild:StartBuild") &&
+      one([for statement in jsondecode(local.launcher_permission_policies["k8s_staging"]).Statement : statement if statement.Sid == "StartOnlyItsDeploymentProject"]).Resource == var.launchers["k8s_staging"].codebuild_project_arn &&
+      one([for statement in jsondecode(local.launcher_permission_policies["k8s_staging"]).Statement : statement if statement.Sid == "DenyBuildspecOverride"]).Condition.Null["codebuild:source.buildspec"] == "false"
+    )
+    error_message = "An ordinary StartBuild without buildspecOverride remains allowed for the exact reviewed project."
   }
 }
 
