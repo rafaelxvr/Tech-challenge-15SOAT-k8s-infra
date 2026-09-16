@@ -12,8 +12,9 @@ spec:
         resources: ["targetgroupbindings"]
   validations:
     - expression: >-
-        object.metadata.name == 'oficina-app'
-      message: "oficina-app TargetGroupBinding must use a reviewed Oficina environment namespace."
+        object.metadata.name == 'oficina-app' ||
+        (request.dryRun == true && object.metadata.name.startsWith('oficina-app-admission-probe-'))
+      message: "TargetGroupBinding must be oficina-app; only a server-side dry-run admission probe may use the reserved probe name."
     - expression: >-
         has(object.metadata.labels['app.kubernetes.io/managed-by']) &&
         has(object.metadata.labels['oficina.io/managed-by']) &&

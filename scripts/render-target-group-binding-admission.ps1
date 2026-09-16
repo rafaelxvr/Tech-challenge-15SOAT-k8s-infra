@@ -9,8 +9,8 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 function Assert-EnvironmentTargetGroupArn([string]$Environment, [string]$Arn) {
-    if (-not [regex]::IsMatch($Arn, "\Aarn:aws:elasticloadbalancing:us-east-1:[0-9]{12}:targetgroup/oficina-$Environment-app/[0-9a-f]{16}\z")) {
-        throw "$Environment target group ARN must be the exact reviewed oficina-$Environment-app target group ARN."
+    if (-not [regex]::IsMatch($Arn, "\Aarn:aws:elasticloadbalancing:us-east-1:[0-9]{12}:targetgroup/oficina-phase3-$Environment-app/[0-9a-f]{16}\z")) {
+        throw "$Environment target group ARN must be the exact reviewed oficina-phase3-$Environment-app target group ARN."
     }
 }
 

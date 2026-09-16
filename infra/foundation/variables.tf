@@ -12,7 +12,13 @@ variable "account_id" {
     error_message = "account_id must be the verified 12-digit deployment account."
   }
 }
-variable "name" { type = string }
+variable "name" {
+  type = string
+  validation {
+    condition     = var.name == "oficina-phase3"
+    error_message = "The reviewed Phase 3 platform name is fixed to oficina-phase3."
+  }
+}
 variable "artifact_bucket_name" { type = string }
 variable "vpc_cidr" { type = string }
 variable "availability_zones" { type = list(string) }

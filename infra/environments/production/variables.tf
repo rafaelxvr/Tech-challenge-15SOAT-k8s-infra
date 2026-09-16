@@ -1,5 +1,11 @@
 variable "aws_region" { type = string }
-variable "name" { type = string }
+variable "name" {
+  type = string
+  validation {
+    condition     = var.name == "oficina-phase3"
+    error_message = "The reviewed Phase 3 platform name is fixed to oficina-phase3."
+  }
+}
 variable "foundation_outputs" {
   type = object({
     vpc_id                = string

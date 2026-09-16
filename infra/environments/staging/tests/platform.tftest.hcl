@@ -5,7 +5,7 @@ run "staging_binds_only_staging_platform_contract" {
 
   variables {
     aws_region = "us-east-1"
-    name       = "oficina"
+    name       = "oficina-phase3"
     foundation_outputs = {
       vpc_id                = "vpc-12345678"
       cluster_name          = "oficina"

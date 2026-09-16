@@ -16,7 +16,7 @@ try {
     if ($createRole -notmatch 'verbs: \["create"\]' -or $createRole -match 'resourceNames:') { throw 'TargetGroupBinding create must be separately granted without resourceNames because Kubernetes cannot authorize create by name.' }
     if ($mutateRole -notmatch 'resourceNames: \["oficina-app"\]' -or $mutateRole -notmatch 'verbs: \["get", "patch", "update"\]' -or $mutateRole -match '"create"') { throw 'TargetGroupBinding get/patch/update must stay name-limited to oficina-app.' }
 
-    $stagingArn = 'arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/oficina-staging-app/1234567890abcdef'
+    $stagingArn = 'arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/oficina-phase3-staging-app/1234567890abcdef'
     $binding = & $renderer -Environment staging -TargetGroupArn $stagingArn -OutputDirectory $tempDirectory
     $rendered = Get-Content -LiteralPath $binding -Raw
     if ($rendered -notmatch 'namespace: oficina-staging' -or $rendered -notmatch [regex]::Escape($stagingArn)) { throw 'Trusted binding renderer did not keep staging namespace and target group together.' }
@@ -24,10 +24,17 @@ try {
 
     $retargetRejected = $false
     try {
-        & $renderer -Environment staging -TargetGroupArn 'arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/oficina-production-app/abcdef1234567890' -OutputDirectory $tempDirectory | Out-Null
+        & $renderer -Environment staging -TargetGroupArn 'arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/oficina-phase3-production-app/abcdef1234567890' -OutputDirectory $tempDirectory | Out-Null
     }
     catch { $retargetRejected = $true }
     if (-not $retargetRejected) { throw 'A staging binding could be retargeted to the production target group.' }
+
+    $wrongReviewedNameRejected = $false
+    try {
+        & $renderer -Environment staging -TargetGroupArn 'arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/oficina-staging-app/1234567890abcdef' -OutputDirectory $tempDirectory | Out-Null
+    }
+    catch { $wrongReviewedNameRejected = $true }
+    if (-not $wrongReviewedNameRejected) { throw 'TargetGroupBinding renderer accepted an ARN outside the reviewed oficina-phase3 Terraform target-group name.' }
 
     foreach ($injectedArn in @(
         "$stagingArn' || true || '",

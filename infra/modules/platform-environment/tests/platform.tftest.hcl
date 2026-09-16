@@ -4,7 +4,7 @@ run "private_environment_contract" {
   command = plan
 
   variables {
-    name                   = "oficina"
+    name                   = "oficina-phase3"
     environment            = "staging"
     aws_region             = "us-east-1"
     vpc_id                 = "vpc-12345678"
@@ -17,8 +17,8 @@ run "private_environment_contract" {
   }
 
   assert {
-    condition     = aws_lb_target_group.app.target_type == "ip" && aws_lb_target_group.app.port == 8080 && aws_lb_target_group.app.health_check[0].path == "/api/actuator/health/readiness"
-    error_message = "The controller must register pod IPs into a readiness-checked target group."
+    condition     = aws_lb_target_group.app.name == "oficina-phase3-staging-app" && aws_lb_target_group.app.target_type == "ip" && aws_lb_target_group.app.port == 8080 && aws_lb_target_group.app.health_check[0].path == "/api/actuator/health/readiness"
+    error_message = "The controller must register pod IPs into the reviewed fixed-name, readiness-checked target group."
   }
   assert {
     condition     = aws_apigatewayv2_api.this.protocol_type == "HTTP" && aws_apigatewayv2_integration.backend.connection_type == "VPC_LINK" && aws_apigatewayv2_integration.backend.request_parameters["overwrite:path"] == "$request.path"
