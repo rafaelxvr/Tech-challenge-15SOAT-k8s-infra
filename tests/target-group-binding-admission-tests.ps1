@@ -12,8 +12,8 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $renderer = Join-Path $repoRoot 'scripts/render-target-group-binding-admission.ps1'
 $template = Get-Content -LiteralPath (Join-Path $repoRoot 'k8s/platform/admission/target-group-binding-admission.yaml') -Raw
 $tempDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ("oficina-target-binding-admission-test-" + [guid]::NewGuid())
-$sampleStagingArn = 'arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/oficina-staging/1234567890abcdef'
-$sampleProductionArn = 'arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/oficina-production/abcdef1234567890'
+$sampleStagingArn = 'arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/oficina-staging-app/1234567890abcdef'
+$sampleProductionArn = 'arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/oficina-production-app/abcdef1234567890'
 
 function Assert-Contains([string]$Text, [string]$Expected, [string]$Message) {
     if (-not $Text.Contains($Expected)) { throw $Message }
@@ -46,8 +46,19 @@ try {
     catch { $swappedArnRejected = $true }
     if (-not $swappedArnRejected) { throw 'Admission renderer accepted cross-environment target group ARNs.' }
 
+    foreach ($injectedArn in @(
+        "$sampleStagingArn' || true || '",
+        "$sampleStagingArn; object.spec.targetGroupARN == 'anything'",
+        "$sampleStagingArn`napiVersion: v1"
+    )) {
+        $injectionRejected = $false
+        try { & $renderer -StagingTargetGroupArn $injectedArn -ProductionTargetGroupArn $sampleProductionArn -OutputDirectory $tempDirectory | Out-Null }
+        catch { $injectionRejected = $true }
+        if (-not $injectionRejected) { throw 'Admission renderer accepted an ARN containing CEL or YAML injection syntax.' }
+    }
+
     if (-not $Run) {
-        Write-Output 'SKIP: pass -Run with an authenticated platform-binding context, exact target group ARNs and an already installed policy to run server-side direct patch admission checks.'
+        Write-Output 'SKIP: pass -Run with an authenticated platform-binding context, exact target group ARNs and an already installed policy to run server-side create and patch admission checks.'
         return
     }
 
@@ -64,8 +75,29 @@ try {
     Assert-Contains $policyText $StagingTargetGroupArn 'Installed policy does not contain the supplied exact staging target group ARN.'
     Assert-Contains $policyText $ProductionTargetGroupArn 'Installed policy does not contain the supplied exact production target group ARN.'
 
+    $canCreate = if ($KubeContext) { & kubectl --context $KubeContext auth can-i create targetgroupbindings.elbv2.k8s.aws --namespace oficina-staging } else { & kubectl auth can-i create targetgroupbindings.elbv2.k8s.aws --namespace oficina-staging }
+    if ($LASTEXITCODE -ne 0 -or $canCreate.Trim() -ne 'yes') { throw 'Live test must run as the platform-binding principal with the intentionally unrestricted create permission.' }
     $canPatch = if ($KubeContext) { & kubectl --context $KubeContext auth can-i patch targetgroupbindings.elbv2.k8s.aws/oficina-app --namespace oficina-staging } else { & kubectl auth can-i patch targetgroupbindings.elbv2.k8s.aws/oficina-app --namespace oficina-staging }
     if ($LASTEXITCODE -ne 0 -or $canPatch.Trim() -ne 'yes') { throw 'Live test must run as the platform-binding principal with name-limited patch RBAC.' }
+
+    $createManifestPath = Join-Path $tempDirectory 'staging-binding-create.yaml'
+    @"
+apiVersion: elbv2.k8s.aws/v1beta1
+kind: TargetGroupBinding
+metadata:
+  name: oficina-app
+  namespace: oficina-staging
+  labels:
+    app.kubernetes.io/managed-by: oficina-k8s-infra
+    oficina.io/managed-by: platform-binding
+spec:
+  serviceRef:
+    name: oficina-app
+    port: 8080
+  targetGroupARN: $StagingTargetGroupArn
+  targetType: ip
+"@ | Set-Content -LiteralPath $createManifestPath -NoNewline
+    if ((Invoke-Kubectl @('create', '--filename', $createManifestPath, '--dry-run=server')) -ne 0) { throw 'Admission policy rejected the reviewed direct staging binding create.' }
 
     $positivePatch = @{ metadata = @{ labels = @{ 'app.kubernetes.io/managed-by' = 'oficina-k8s-infra'; 'oficina.io/managed-by' = 'platform-binding' } }; spec = @{ targetGroupARN = $StagingTargetGroupArn } } | ConvertTo-Json -Compress
     if ((Invoke-Kubectl @('patch', 'targetgroupbindings.elbv2.k8s.aws/oficina-app', '--namespace', 'oficina-staging', '--type', 'merge', '--patch', $positivePatch, '--dry-run=server')) -ne 0) { throw 'Admission policy rejected the reviewed staging binding patch.' }
@@ -74,7 +106,7 @@ try {
     $negativeOutput = if ($KubeContext) { & kubectl --context $KubeContext patch targetgroupbindings.elbv2.k8s.aws/oficina-app --namespace oficina-staging --type merge --patch $negativePatch --dry-run=server 2>&1 } else { & kubectl patch targetgroupbindings.elbv2.k8s.aws/oficina-app --namespace oficina-staging --type merge --patch $negativePatch --dry-run=server 2>&1 }
     if ($LASTEXITCODE -eq 0) { throw 'Admission policy allowed a direct staging binding patch to the production target group.' }
     Assert-Contains ($negativeOutput | Out-String) "must use its environment's exact reviewed target group ARN" 'Direct staging-to-production patch was denied for an unexpected reason.'
-    Write-Output 'PASS: server-side direct patch accepts the reviewed staging target and denies the production target despite name-limited RBAC.'
+    Write-Output 'PASS: server-side direct create and patch accept the reviewed staging target and deny the production target despite name-limited mutation RBAC.'
 }
 finally {
     Remove-Item -LiteralPath $tempDirectory -Recurse -Force -ErrorAction SilentlyContinue
