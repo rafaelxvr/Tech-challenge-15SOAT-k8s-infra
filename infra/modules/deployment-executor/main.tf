@@ -10,11 +10,181 @@ locals {
     "eks:UpdateNodegroupConfig",
     "eks:UpdateNodegroupVersion"
   ]
-  executor_eks_actions = {
-    for key, deployment in var.deployments : key => deployment.repository == var.kubernetes_repository ? concat(local.eks_describe_actions, local.eks_node_group_update_actions) : local.eks_describe_actions
-  }
-  executor_eks_resources = {
-    for key, deployment in var.deployments : key => deployment.repository == var.kubernetes_repository ? concat([var.cluster_arn], var.node_group_arns) : [var.cluster_arn]
+  # Each repo/environment pair receives a provider profile for the Terraform
+  # resources it owns. JSON keeps the conditional profile shapes homogeneous
+  # while the generated IAM policy remains fully inspectable in tests.
+  executor_permission_profile_documents = {
+    for key, deployment in var.deployments : key => deployment.repository == var.kubernetes_repository ? jsonencode({
+      profile = "kubernetes-${deployment.environment}"
+      statements = [
+        {
+          Sid      = "ControlOnlyReviewedClusterAndNodeGroups"
+          Effect   = "Allow"
+          Action   = concat(local.eks_describe_actions, local.eks_node_group_update_actions)
+          Resource = concat([var.cluster_arn], var.node_group_arns)
+        },
+        {
+          Sid      = "RunOnlyReviewedKubernetesPlatformProviderActions"
+          Effect   = "Allow"
+          Action   = ["sts:GetCallerIdentity", "apigateway:GET", "apigateway:POST", "apigateway:PATCH", "apigateway:DELETE", "elasticloadbalancing:DescribeListeners", "elasticloadbalancing:DescribeRules", "elasticloadbalancing:DescribeTargetGroups", "elasticloadbalancing:DescribeTags"]
+          Resource = "*"
+        },
+        {
+          Sid      = "ManageOnlyItsClusterAccessEntry"
+          Effect   = "Allow"
+          Action   = ["eks:CreateAccessEntry", "eks:DeleteAccessEntry", "eks:DescribeAccessEntry", "eks:ListAccessEntries", "eks:AssociateAccessPolicy", "eks:DisassociateAccessPolicy", "eks:ListAssociatedAccessPolicies"]
+          Resource = var.cluster_arn
+        },
+        {
+          Sid      = "CreateOnlyTaggedEnvironmentTargetGroups"
+          Effect   = "Allow"
+          Action   = "elasticloadbalancing:CreateTargetGroup"
+          Resource = "*"
+          Condition = { StringEquals = {
+            "aws:RequestTag/project"     = "oficina-phase3"
+            "aws:RequestTag/environment" = deployment.environment
+          } }
+        },
+        {
+          Sid    = "ManageOnlyNamedEnvironmentTargetAndListenerRules"
+          Effect = "Allow"
+          Action = ["elasticloadbalancing:DeleteTargetGroup", "elasticloadbalancing:ModifyTargetGroup", "elasticloadbalancing:ModifyTargetGroupAttributes", "elasticloadbalancing:CreateRule", "elasticloadbalancing:ModifyRule", "elasticloadbalancing:DeleteRule"]
+          Resource = [
+            "arn:aws:elasticloadbalancing:${var.aws_region}:${var.account_id}:targetgroup/${var.name}-${deployment.environment}-*/*",
+            "arn:aws:elasticloadbalancing:${var.aws_region}:${var.account_id}:listener/app/${var.name}-internal/*/*",
+            "arn:aws:elasticloadbalancing:${var.aws_region}:${var.account_id}:listener-rule/app/${var.name}-internal/*/*/*"
+          ]
+        }
+      ]
+      }) : deployment.repository == "oficina-db-infra" ? jsonencode({
+      profile = "database-${deployment.environment}"
+      statements = [
+        {
+          Sid      = "DescribeOnlyReviewedDatabaseNetwork"
+          Effect   = "Allow"
+          Action   = ["ec2:DescribeVpcs", "ec2:DescribeSubnets", "ec2:DescribeSecurityGroups", "rds:DescribeDBInstances", "rds:DescribeDBSubnetGroups", "rds:ListTagsForResource"]
+          Resource = "*"
+        },
+        {
+          Sid       = "ManageOnlyTaggedEnvironmentDatabase"
+          Effect    = "Allow"
+          Action    = ["rds:CreateDBInstance", "rds:CreateDBSubnetGroup"]
+          Resource  = "*"
+          Condition = { StringEquals = { "aws:RequestTag/project" = "oficina-phase3", "aws:RequestTag/environment" = deployment.environment } }
+        },
+        {
+          Sid      = "ManageOnlyNamedEnvironmentDatabase"
+          Effect   = "Allow"
+          Action   = ["rds:ModifyDBInstance", "rds:DeleteDBInstance", "rds:RebootDBInstance"]
+          Resource = "arn:aws:rds:${var.aws_region}:${var.account_id}:db:${var.name}-${deployment.environment}-*"
+        },
+        {
+          Sid      = "ManageOnlyNamedEnvironmentDatabaseSubnetGroups"
+          Effect   = "Allow"
+          Action   = ["rds:ModifyDBSubnetGroup", "rds:DeleteDBSubnetGroup"]
+          Resource = "arn:aws:rds:${var.aws_region}:${var.account_id}:subgrp:${var.name}-${deployment.environment}-*"
+        },
+        {
+          Sid       = "ManageOnlyEnvironmentDatabaseSecrets"
+          Effect    = "Allow"
+          Action    = ["secretsmanager:CreateSecret"]
+          Resource  = "*"
+          Condition = { StringEquals = { "aws:RequestTag/project" = "oficina-phase3", "aws:RequestTag/environment" = deployment.environment } }
+        },
+        {
+          Sid      = "ReadWriteOnlyNamedEnvironmentDatabaseSecrets"
+          Effect   = "Allow"
+          Action   = ["secretsmanager:DescribeSecret", "secretsmanager:UpdateSecret", "secretsmanager:PutSecretValue", "secretsmanager:DeleteSecret", "secretsmanager:TagResource"]
+          Resource = "arn:aws:secretsmanager:${var.aws_region}:${var.account_id}:secret:oficina/${deployment.environment}/*"
+        }
+      ]
+      }) : deployment.repository == "oficina-functions" ? jsonencode({
+      profile = "functions-${deployment.environment}"
+      statements = [
+        {
+          Sid       = "ManageOnlyTaggedEnvironmentFunctions"
+          Effect    = "Allow"
+          Action    = ["lambda:CreateFunction"]
+          Resource  = "*"
+          Condition = { StringEquals = { "aws:RequestTag/project" = "oficina-phase3", "aws:RequestTag/environment" = deployment.environment } }
+        },
+        {
+          Sid      = "ManageOnlyNamedEnvironmentFunctions"
+          Effect   = "Allow"
+          Action   = ["lambda:GetFunction", "lambda:GetFunctionConfiguration", "lambda:UpdateFunctionCode", "lambda:UpdateFunctionConfiguration", "lambda:DeleteFunction", "lambda:PublishVersion", "lambda:ListVersionsByFunction", "lambda:TagResource", "lambda:UntagResource"]
+          Resource = "arn:aws:lambda:${var.aws_region}:${var.account_id}:function:${var.name}-${deployment.environment}-*"
+        },
+        {
+          Sid      = "ManageOnlyEnvironmentFunctionEventMappings"
+          Effect   = "Allow"
+          Action   = ["lambda:CreateEventSourceMapping", "lambda:UpdateEventSourceMapping", "lambda:DeleteEventSourceMapping", "lambda:ListEventSourceMappings"]
+          Resource = "*"
+          Condition = { StringEquals = {
+            "lambda:FunctionArn" = "arn:aws:lambda:${var.aws_region}:${var.account_id}:function:${var.name}-${deployment.environment}-*"
+          } }
+        },
+        {
+          Sid       = "CreateOnlyTaggedEnvironmentQueuesAndTables"
+          Effect    = "Allow"
+          Action    = ["sqs:CreateQueue", "dynamodb:CreateTable"]
+          Resource  = "*"
+          Condition = { StringEquals = { "aws:RequestTag/project" = "oficina-phase3", "aws:RequestTag/environment" = deployment.environment } }
+        },
+        {
+          Sid      = "ManageOnlyNamedEnvironmentQueue"
+          Effect   = "Allow"
+          Action   = ["sqs:GetQueueAttributes", "sqs:SetQueueAttributes", "sqs:DeleteQueue"]
+          Resource = "arn:aws:sqs:${var.aws_region}:${var.account_id}:${var.name}-${deployment.environment}-*"
+        },
+        {
+          Sid      = "ManageOnlyNamedEnvironmentTables"
+          Effect   = "Allow"
+          Action   = ["dynamodb:DescribeTable", "dynamodb:UpdateTable", "dynamodb:DeleteTable"]
+          Resource = "arn:aws:dynamodb:${var.aws_region}:${var.account_id}:table/${var.name}-${deployment.environment}-*"
+        },
+        {
+          Sid      = "ManageOnlyNamedEnvironmentFunctionRoles"
+          Effect   = "Allow"
+          Action   = ["iam:CreateRole", "iam:DeleteRole", "iam:GetRole", "iam:GetRolePolicy", "iam:ListRolePolicies", "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:TagRole", "iam:UntagRole", "iam:PassRole"]
+          Resource = "arn:aws:iam::${var.account_id}:role/${var.name}-${deployment.environment}-*"
+        },
+        {
+          Sid      = "ManageOnlyNamedEnvironmentPublisherPolicy"
+          Effect   = "Allow"
+          Action   = ["iam:GetPolicy", "iam:GetPolicyVersion", "iam:DeletePolicy", "iam:CreatePolicyVersion", "iam:DeletePolicyVersion", "iam:TagPolicy", "iam:UntagPolicy"]
+          Resource = "arn:aws:iam::${var.account_id}:policy/${var.name}-${deployment.environment}-notification-publisher"
+        },
+        {
+          Sid       = "CreateOnlyTaggedEnvironmentPublisherPolicy"
+          Effect    = "Allow"
+          Action    = ["iam:CreatePolicy"]
+          Resource  = "*"
+          Condition = { StringEquals = { "aws:RequestTag/project" = "oficina-phase3", "aws:RequestTag/environment" = deployment.environment } }
+        },
+        {
+          Sid      = "ManageOnlyEnvironmentFunctionLogs"
+          Effect   = "Allow"
+          Action   = ["logs:CreateLogGroup", "logs:DeleteLogGroup", "logs:PutRetentionPolicy", "logs:TagResource", "logs:UntagResource"]
+          Resource = "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:/aws/lambda/${var.name}-${deployment.environment}-*"
+        }
+      ]
+      }) : jsonencode({
+      profile = "application-${deployment.environment}"
+      statements = [
+        {
+          Sid      = "RolloutOnlyReviewedCluster"
+          Effect   = "Allow"
+          Action   = ["eks:DescribeCluster"]
+          Resource = var.cluster_arn
+        },
+        {
+          Sid      = "ReadOnlyEnvironmentContainerImages"
+          Effect   = "Allow"
+          Action   = ["ecr:DescribeImages", "ecr:BatchGetImage"]
+          Resource = "arn:aws:ecr:${var.aws_region}:${var.account_id}:repository/${var.name}-${deployment.environment}-*"
+        }
+      ]
+    })
   }
   codebuild_assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -56,12 +226,6 @@ locals {
           Resource = "*"
         },
         {
-          Sid      = deployment.repository == var.kubernetes_repository ? "ControlOnlyReviewedClusterAndNodeGroups" : "DescribeOnlyReviewedCluster"
-          Effect   = "Allow"
-          Action   = local.executor_eks_actions[key]
-          Resource = local.executor_eks_resources[key]
-        },
-        {
           Sid       = "ListOnlyItsTerraformStatePrefix"
           Effect    = "Allow"
           Action    = "s3:ListBucket"
@@ -80,40 +244,7 @@ locals {
           Action   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
           Resource = "arn:aws:s3:::${var.state_bucket_name}/${deployment.terraform_state_key}.tflock"
         }
-        ], [for statement in [
-          {
-            Sid      = "RunOnlyReviewedKubernetesPlatformProviderActions"
-            Effect   = "Allow"
-            Action   = ["sts:GetCallerIdentity", "apigateway:GET", "apigateway:POST", "apigateway:PATCH", "apigateway:DELETE", "elasticloadbalancing:DescribeListeners", "elasticloadbalancing:DescribeRules", "elasticloadbalancing:DescribeTargetGroups", "elasticloadbalancing:DescribeTags"]
-            Resource = "*"
-          },
-          {
-            Sid      = "ManageOnlyItsClusterAccessEntry"
-            Effect   = "Allow"
-            Action   = ["eks:CreateAccessEntry", "eks:DeleteAccessEntry", "eks:DescribeAccessEntry", "eks:ListAccessEntries", "eks:AssociateAccessPolicy", "eks:DisassociateAccessPolicy", "eks:ListAssociatedAccessPolicies"]
-            Resource = var.cluster_arn
-          },
-          {
-            Sid      = "CreateOnlyTaggedEnvironmentTargetGroups"
-            Effect   = "Allow"
-            Action   = "elasticloadbalancing:CreateTargetGroup"
-            Resource = "*"
-            Condition = { StringEquals = {
-              "aws:RequestTag/project"     = "oficina-phase3"
-              "aws:RequestTag/environment" = deployment.environment
-            } }
-          },
-          {
-            Sid    = "ManageOnlyNamedEnvironmentTargetAndListenerRules"
-            Effect = "Allow"
-            Action = ["elasticloadbalancing:DeleteTargetGroup", "elasticloadbalancing:ModifyTargetGroup", "elasticloadbalancing:ModifyTargetGroupAttributes", "elasticloadbalancing:CreateRule", "elasticloadbalancing:ModifyRule", "elasticloadbalancing:DeleteRule"]
-            Resource = [
-              "arn:aws:elasticloadbalancing:${var.aws_region}:${var.account_id}:targetgroup/${var.name}-${deployment.environment}-*/*",
-              "arn:aws:elasticloadbalancing:${var.aws_region}:${var.account_id}:listener/app/${var.name}-internal/*/*",
-              "arn:aws:elasticloadbalancing:${var.aws_region}:${var.account_id}:listener-rule/app/${var.name}-internal/*/*/*"
-            ]
-          }
-      ] : statement if deployment.repository == var.kubernetes_repository])
+      ], jsondecode(local.executor_permission_profile_documents[key]).statements)
     })
   }
   # The executor's buildspec is Terraform-owned. Nothing from the archive is

@@ -6,6 +6,7 @@
       "vpcId": "vpc_id",
       "privateSubnetIds": "private_subnet_ids",
       "databaseSubnetIds": "database_subnet_ids",
+      "functionSecurityGroupId": "function_security_group_id",
       "clusterName": "cluster_name",
       "clusterOidcProviderArn": "cluster_oidc_provider_arn",
       "vpcLinkId": "vpc_link_id",

@@ -38,6 +38,10 @@ run "foundation_output_schema_is_bounded" {
     error_message = "Foundation must export only the v1 network boundary with two private and two database subnets."
   }
   assert {
+    condition     = aws_vpc_security_group_egress_rule.functions_to_aws_apis.from_port == 443 && aws_vpc_security_group_egress_rule.functions_to_database.to_port == 5432 && aws_vpc_security_group_ingress_rule.database_from_functions.from_port == 5432
+    error_message = "Foundation must export one Lambda security group with PostgreSQL-only database access."
+  }
+  assert {
     condition     = length(output.codebuild_projects) == 8 && alltrue([for project in values(output.codebuild_projects) : contains(keys(project), "projectName") && contains(keys(project), "roleName") && contains(keys(project), "roleArn")])
     error_message = "Foundation must export the bounded eight-project deployer name and role map."
   }

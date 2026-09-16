@@ -32,13 +32,43 @@ run "eight_bounded_private_deployers" {
     error_message = "The four repositories require exactly eight bounded, S3-sourced non-privileged deployers."
   }
   assert {
-    condition = length([for key, deployment in var.deployments : key if deployment.repository == var.kubernetes_repository]) == 2 && alltrue([
-      for key, deployment in var.deployments :
-      deployment.repository == var.kubernetes_repository ?
-      length(local.executor_eks_actions[key]) == 5 && contains(local.executor_eks_actions[key], "eks:UpdateNodegroupConfig") && contains(local.executor_eks_actions[key], "eks:UpdateNodegroupVersion") :
-      length(local.executor_eks_actions[key]) == 1 && local.executor_eks_actions[key][0] == "eks:DescribeCluster"
+    condition = alltrue([
+      jsondecode(local.executor_permission_profile_documents["k8s_staging"]).profile == "kubernetes-staging",
+      jsondecode(local.executor_permission_profile_documents["k8s_production"]).profile == "kubernetes-production",
+      jsondecode(local.executor_permission_profile_documents["db_staging"]).profile == "database-staging",
+      jsondecode(local.executor_permission_profile_documents["db_production"]).profile == "database-production",
+      jsondecode(local.executor_permission_profile_documents["functions_staging"]).profile == "functions-staging",
+      jsondecode(local.executor_permission_profile_documents["functions_production"]).profile == "functions-production",
+      jsondecode(local.executor_permission_profile_documents["app_staging"]).profile == "application-staging",
+      jsondecode(local.executor_permission_profile_documents["app_production"]).profile == "application-production"
     ])
-    error_message = "Only the Kubernetes repository's staging and production roles may update reviewed node groups."
+    error_message = "Each repository and reviewed environment must receive its explicit executor permission profile."
+  }
+  assert {
+    condition = alltrue([
+      strcontains(local.executor_permission_profile_documents["db_staging"], "rds:CreateDBInstance"),
+      strcontains(local.executor_permission_profile_documents["db_production"], "secretsmanager:PutSecretValue"),
+      strcontains(local.executor_permission_profile_documents["functions_staging"], "lambda:CreateFunction"),
+      strcontains(local.executor_permission_profile_documents["functions_production"], "dynamodb:UpdateTable"),
+      strcontains(local.executor_permission_profile_documents["app_staging"], "eks:DescribeCluster"),
+      strcontains(local.executor_permission_profile_documents["app_production"], "ecr:BatchGetImage"),
+      strcontains(local.executor_permission_profile_documents["k8s_staging"], "eks:UpdateNodegroupConfig"),
+      strcontains(local.executor_permission_profile_documents["k8s_production"], "apigateway:PATCH")
+    ])
+    error_message = "Each CodeBuild role must contain only the provider capabilities required by its reviewed Terraform owner."
+  }
+  assert {
+    condition = alltrue([
+      !strcontains(local.executor_permission_profile_documents["db_staging"], "lambda:"),
+      !strcontains(local.executor_permission_profile_documents["db_production"], "eks:"),
+      !strcontains(local.executor_permission_profile_documents["functions_staging"], "rds:"),
+      !strcontains(local.executor_permission_profile_documents["functions_production"], "apigateway:"),
+      !strcontains(local.executor_permission_profile_documents["app_staging"], "rds:"),
+      !strcontains(local.executor_permission_profile_documents["app_production"], "lambda:"),
+      !strcontains(local.executor_permission_profile_documents["k8s_staging"], "secretsmanager:"),
+      !strcontains(local.executor_permission_profile_documents["k8s_production"], "dynamodb:")
+    ])
+    error_message = "No executor may inherit another repository's database, function, application, or platform provider permissions."
   }
   assert {
     condition     = aws_ecr_repository.deployer.image_tag_mutability == "IMMUTABLE" && can(regex("^sha256:", var.deployer_image_digest))

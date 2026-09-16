@@ -333,6 +333,53 @@ resource "aws_security_group_rule" "codebuild_to_private_cluster_api" {
   description              = "Only private CodeBuild executor traffic may call the cluster API."
 }
 
+# Lambda functions share one foundation-owned group. It can call AWS service
+# APIs over TLS and the database only through the reviewed database group.
+resource "aws_security_group" "lambda" {
+  name        = "${var.name}-functions"
+  description = "Private Lambda egress is limited to TLS service APIs and PostgreSQL in the reviewed database group."
+  vpc_id      = module.network.vpc_id
+  ingress     = []
+  egress      = []
+  tags        = { project = "oficina-phase3", managedBy = "oficina-k8s-infra", component = "functions" }
+}
+
+resource "aws_security_group" "rds" {
+  name        = "${var.name}-rds"
+  description = "Managed PostgreSQL accepts traffic only from the foundation Lambda security group."
+  vpc_id      = module.network.vpc_id
+  ingress     = []
+  egress      = []
+  tags        = { project = "oficina-phase3", managedBy = "oficina-k8s-infra", component = "database" }
+}
+
+resource "aws_vpc_security_group_egress_rule" "functions_to_aws_apis" {
+  security_group_id = aws_security_group.lambda.id
+  ip_protocol       = "tcp"
+  from_port         = 443
+  to_port           = 443
+  cidr_ipv4         = "0.0.0.0/0"
+  description       = "Functions may use TLS only for reviewed AWS service APIs through the private NAT path."
+}
+
+resource "aws_vpc_security_group_egress_rule" "functions_to_database" {
+  security_group_id            = aws_security_group.lambda.id
+  referenced_security_group_id = aws_security_group.rds.id
+  ip_protocol                  = "tcp"
+  from_port                    = 5432
+  to_port                      = 5432
+  description                  = "Functions may reach only PostgreSQL in the reviewed database group."
+}
+
+resource "aws_vpc_security_group_ingress_rule" "database_from_functions" {
+  security_group_id            = aws_security_group.rds.id
+  referenced_security_group_id = aws_security_group.lambda.id
+  ip_protocol                  = "tcp"
+  from_port                    = 5432
+  to_port                      = 5432
+  description                  = "Only private functions may reach the managed PostgreSQL database."
+}
+
 module "deployment_executor" {
   source                = "../modules/deployment-executor"
   name                  = var.name

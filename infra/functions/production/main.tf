@@ -1,11 +1,14 @@
 provider "aws" { region = var.aws_region }
 
 module "functions" {
-  source                      = "../../modules/functions"
-  name                        = var.name
-  environment                 = "production"
-  aws_region                  = var.aws_region
-  network                     = var.network
+  source      = "../../modules/functions"
+  name        = var.name
+  environment = "production"
+  aws_region  = var.aws_region
+  network = {
+    private_subnet_ids         = var.foundation_outputs.private_subnet_ids
+    function_security_group_id = var.foundation_outputs.function_security_group_id
+  }
   lambda_artifact             = var.lambda_artifact
   runtime_secret_arns         = var.runtime_secret_arns
   customer_key_id             = var.customer_key_id

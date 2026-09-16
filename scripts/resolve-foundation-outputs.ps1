@@ -87,10 +87,11 @@ try {
     Require-ExactPropertyNames $artifact @('schemaVersion', 'environment', 'sourceCommit', 'outputs') 'foundation artifact envelope'
     if ($artifact.schemaVersion -ne 1 -or [string](OutputValue $artifact 'environment') -cne 'foundation' -or [string](OutputValue $artifact 'sourceCommit') -cne $sourceCommit) { Fail 'foundation artifact schema, environment, or source commit is invalid.' }
     $outputs = OutputValue $artifact 'outputs'
-    Require-ExactPropertyNames $outputs @('vpcId', 'privateSubnetIds', 'databaseSubnetIds', 'clusterName', 'clusterOidcProviderArn', 'vpcLinkId', 'backendListenerArns', 'codeBuildProjects') 'foundation artifact outputs'
+    Require-ExactPropertyNames $outputs @('vpcId', 'privateSubnetIds', 'databaseSubnetIds', 'functionSecurityGroupId', 'clusterName', 'clusterOidcProviderArn', 'vpcLinkId', 'backendListenerArns', 'codeBuildProjects') 'foundation artifact outputs'
     $null = Require-Text $outputs 'vpcId'
     $null = Require-StringArray $outputs 'privateSubnetIds'
     $null = Require-StringArray $outputs 'databaseSubnetIds'
+    $null = Require-Text $outputs 'functionSecurityGroupId'
     $null = Require-Text $outputs 'clusterName'
     $null = Require-Text $outputs 'clusterOidcProviderArn'
     $null = Require-Text $outputs 'vpcLinkId'

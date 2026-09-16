@@ -60,7 +60,7 @@ Assert-True ($allowlist.repository -eq 'oficina-k8s-infra') 'output allowlist mu
 
 $expectedMappings = [ordered]@{
     foundation = [ordered]@{
-        vpcId = 'vpc_id'; privateSubnetIds = 'private_subnet_ids'; databaseSubnetIds = 'database_subnet_ids'
+        vpcId = 'vpc_id'; privateSubnetIds = 'private_subnet_ids'; databaseSubnetIds = 'database_subnet_ids'; functionSecurityGroupId = 'function_security_group_id'
         clusterName = 'cluster_name'; clusterOidcProviderArn = 'cluster_oidc_provider_arn'; vpcLinkId = 'vpc_link_id'
         backendListenerArns = 'backend_listener_arns'; codeBuildProjects = 'codebuild_projects'
     }
@@ -105,6 +105,7 @@ try {
         vpc_id = @{ value = 'vpc-123' }
         private_subnet_ids = @{ value = @('subnet-private-a', 'subnet-private-b') }
         database_subnet_ids = @{ value = @('subnet-db-a', 'subnet-db-b') }
+        function_security_group_id = @{ value = 'sg-functions-123' }
         cluster_name = @{ value = 'oficina-phase3' }
         cluster_oidc_provider_arn = @{ value = 'arn:aws:iam::123456789012:oidc-provider/oidc.eks.us-east-1.amazonaws.com/id/example' }
         vpc_link_id = @{ value = 'abc123' }
