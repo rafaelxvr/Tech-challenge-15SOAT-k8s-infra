@@ -120,9 +120,9 @@ public final class FunctionHandlerColdStart {
                 if (!headers.contains("X-Amz-Target: secretsmanager.GetSecretValue")) throw new IllegalArgumentException("Unexpected mock operation");
                 Map<String, String> request = JSON.readValue(readBody(input, headers), new TypeReference<>() { });
                 String arn = request.get("SecretId");
+                requestCounts.computeIfAbsent(arn == null ? "<missing-secret-id>" : arn, ignored -> new AtomicInteger()).incrementAndGet();
                 String secret = responses.get(arn);
                 if (secret == null) throw new IllegalArgumentException("Unexpected secret ARN");
-                requestCounts.computeIfAbsent(arn, ignored -> new AtomicInteger()).incrementAndGet();
                 byte[] body = JSON.writeValueAsBytes(Map.of("ARN", arn, "Name", "local-i5-cold-start", "VersionId", UUID.randomUUID().toString(), "SecretString", secret));
                 writeResponse(socket, 200, body);
             } catch (Exception exception) {
