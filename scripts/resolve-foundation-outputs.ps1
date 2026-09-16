@@ -106,11 +106,13 @@ try {
     $resolved = [ordered]@{}
     foreach ($property in $base.PSObject.Properties) { $resolved[$property.Name] = $property.Value }
     $resolved.foundation_outputs = [ordered]@{
-        vpc_id                = Require-Text $outputs 'vpcId'
-        cluster_name          = Require-Text $outputs 'clusterName'
-        vpc_link_id           = Require-Text $outputs 'vpcLinkId'
-        backend_listener_arns = [ordered]@{ staging = $stagingListener; production = $productionListener }
-        codebuild_projects    = [ordered]@{ k8s_staging = [ordered]@{ roleArn = $stagingRole }; k8s_production = [ordered]@{ roleArn = $productionRole } }
+        vpc_id                     = Require-Text $outputs 'vpcId'
+        private_subnet_ids         = Require-StringArray $outputs 'privateSubnetIds'
+        function_security_group_id = Require-Text $outputs 'functionSecurityGroupId'
+        cluster_name               = Require-Text $outputs 'clusterName'
+        vpc_link_id                = Require-Text $outputs 'vpcLinkId'
+        backend_listener_arns      = [ordered]@{ staging = $stagingListener; production = $productionListener }
+        codebuild_projects         = [ordered]@{ k8s_staging = [ordered]@{ roleArn = $stagingRole }; k8s_production = [ordered]@{ roleArn = $productionRole } }
     }
     $destination = Split-Path -Parent $OutputTerraformVariablesFile
     if ($destination -and -not (Test-Path -LiteralPath $destination)) { New-Item -ItemType Directory -Path $destination -Force | Out-Null }

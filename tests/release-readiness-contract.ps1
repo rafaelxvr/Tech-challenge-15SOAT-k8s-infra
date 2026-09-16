@@ -70,6 +70,13 @@ $expectedMappings = [ordered]@{
     }
 }
 
+foreach ($root in @('infra/functions/staging', 'infra/functions/production')) {
+    $rootVariables = Get-Content -LiteralPath (Join-Path $repoRoot "$root/variables.tf") -Raw
+    $rootMain = Get-Content -LiteralPath (Join-Path $repoRoot "$root/main.tf") -Raw
+    Assert-True ($rootVariables.Contains('variable "foundation_outputs" { type = object({ private_subnet_ids = set(string), function_security_group_id = string }) }')) "$root must accept the exact foundation network object shape."
+    Assert-True ($rootMain.Contains('var.foundation_outputs.private_subnet_ids') -and $rootMain.Contains('var.foundation_outputs.function_security_group_id')) "$root must use both resolved foundation network fields."
+}
+
 $outputRoots = @{
     foundation = @(Join-Path $repoRoot 'infra/foundation/outputs.tf')
     environment = @(
@@ -123,7 +130,7 @@ try {
     $resolvedTfvars = Join-Path $temp 'resolved.tfvars.json'
     & (Join-Path $repoRoot 'scripts/resolve-foundation-outputs.ps1') -ArtifactBucket 'oficina-artifacts-example' -ReceiptFile $receipt -BaseTerraformVariablesFile $baseTfvars -OutputTerraformVariablesFile $resolvedTfvars -OfflineDirectory $offline | Out-Null
     $resolved = Get-Content -LiteralPath $resolvedTfvars -Raw | ConvertFrom-Json
-    Assert-True ($resolved.foundation_outputs.vpc_id -eq 'vpc-123' -and $resolved.foundation_outputs.vpc_link_id -eq 'abc123' -and $resolved.foundation_outputs.backend_listener_arns.staging -match '/staging$' -and $resolved.foundation_outputs.backend_listener_arns.production -match '/production$' -and $resolved.foundation_outputs.codebuild_projects.k8s_staging.roleArn -match ':role/k8s-staging$') 'verified foundation outputs must produce the exact platform foundation_outputs shape.'
+    Assert-True ($resolved.foundation_outputs.vpc_id -eq 'vpc-123' -and @($resolved.foundation_outputs.private_subnet_ids).Count -eq 2 -and $resolved.foundation_outputs.private_subnet_ids[0] -eq 'subnet-private-a' -and $resolved.foundation_outputs.function_security_group_id -eq 'sg-functions-123' -and $resolved.foundation_outputs.vpc_link_id -eq 'abc123' -and $resolved.foundation_outputs.backend_listener_arns.staging -match '/staging$' -and $resolved.foundation_outputs.backend_listener_arns.production -match '/production$' -and $resolved.foundation_outputs.codebuild_projects.k8s_staging.roleArn -match ':role/k8s-staging$') 'verified foundation outputs must preserve the Functions network object from the exact artifact and receipt.'
     $artifactFile = Join-Path (Join-Path $offline 'versions') "$($publishedReceipt.artifactVersionId).json"
     $completeArtifactText = Get-Content -LiteralPath $artifactFile -Raw
 
