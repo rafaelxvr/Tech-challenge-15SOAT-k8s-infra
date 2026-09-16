@@ -64,6 +64,46 @@ locals {
       ]
     })
   }
+  # The executor's buildspec is Terraform-owned. Nothing from the archive is
+  # executed until this bootstrap has re-downloaded the exact object version
+  # and verified both the source and release-manifest digests.
+  inline_deployment_buildspec = <<-YAML
+    version: 0.2
+    phases:
+      build:
+        commands:
+          - |
+            set -euo pipefail
+            required=(DEPLOY_ENVIRONMENT SOURCE_BUCKET SOURCE_KEY SOURCE_VERSION_ID EXPECTED_SHA256 RELEASE_MANIFEST_KEY RELEASE_MANIFEST_VERSION_ID EXPECTED_MANIFEST_SHA256 SOURCE_COMMIT DEPLOYER_IMAGE_DIGEST DEPLOYMENT_TFVARS_PATH DEPLOYMENT_MODE)
+            for variable in "$${required[@]}"; do
+              if [ -z "$${!variable:-}" ]; then
+                echo "Required deployment input is missing: $${variable}"
+                exit 1
+              fi
+            done
+            if [ "$${DEPLOYMENT_MODE}" != "plan" ] && [ "$${DEPLOYMENT_MODE}" != "apply" ]; then
+              echo 'DEPLOYMENT_MODE must be plan or apply.'
+              exit 1
+            fi
+            workdir="$(mktemp -d)"
+            trap 'rm -rf "$${workdir}"' EXIT
+            aws s3api get-object --bucket "$${SOURCE_BUCKET}" --key "$${SOURCE_KEY}" --version-id "$${SOURCE_VERSION_ID}" "$${workdir}/bundle.zip" >/dev/null
+            actual_sha="$(sha256sum "$${workdir}/bundle.zip" | awk '{print $1}')"
+            if [ "$${actual_sha}" != "$${EXPECTED_SHA256}" ]; then
+              echo 'Source digest mismatch.'
+              exit 1
+            fi
+            aws s3api get-object --bucket "$${SOURCE_BUCKET}" --key "$${RELEASE_MANIFEST_KEY}" --version-id "$${RELEASE_MANIFEST_VERSION_ID}" "$${workdir}/release-manifest.json" >/dev/null
+            actual_manifest_sha="$(sha256sum "$${workdir}/release-manifest.json" | awk '{print $1}')"
+            if [ "$${actual_manifest_sha}" != "$${EXPECTED_MANIFEST_SHA256}" ]; then
+              echo 'Release manifest digest mismatch.'
+              exit 1
+            fi
+            unzip -q "$${workdir}/bundle.zip" -d "$${workdir}/release"
+            apply_switch=()
+            if [ "$${DEPLOYMENT_MODE}" = "apply" ]; then apply_switch=(-ApplyReviewedPlan); fi
+            pwsh -NoLogo -NoProfile -File "$${workdir}/release/scripts/deploy.ps1" -Environment "$${DEPLOY_ENVIRONMENT}" -ReleaseManifest "$${workdir}/release-manifest.json" -ExpectedSourceSha256 "$${EXPECTED_SHA256}" -ExpectedManifestSha256 "$${EXPECTED_MANIFEST_SHA256}" -SourceCommit "$${SOURCE_COMMIT}" -ExpectedDeployerImageDigest "$${DEPLOYER_IMAGE_DIGEST}" -TerraformVariablesFile "$${DEPLOYMENT_TFVARS_PATH}" "$${apply_switch[@]}"
+  YAML
 }
 
 resource "aws_ecr_repository" "deployer" {
@@ -111,7 +151,7 @@ resource "aws_codebuild_project" "deploy" {
   source {
     type      = "S3"
     location  = "${var.artifact_bucket_name}/${each.value.source_prefix}/bundle.zip"
-    buildspec = "buildspec.deploy.yml"
+    buildspec = local.inline_deployment_buildspec
   }
   environment {
     compute_type                = "BUILD_GENERAL1_SMALL"

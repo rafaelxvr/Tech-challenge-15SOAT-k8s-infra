@@ -1,0 +1,132 @@
+name: ci-cd
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: local-contracts
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Verify pipeline contracts
+        shell: pwsh
+        run: |
+          ./tests/pipeline-contract.ps1
+          ./tests/gateway-contract-tests.ps1
+          ./tests/functions-contract.ps1
+      - name: Verify Terraform formatting
+        run: terraform fmt -check -recursive
+
+  deploy-staging:
+    name: deploy-staging
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    needs: verify
+    runs-on: ubuntu-24.04
+    environment: staging
+    concurrency:
+      group: phase3-k8s-staging
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      DEPLOY_ENVIRONMENT: staging
+      ARTIFACT_BUCKET: ${{ vars.ARTIFACT_BUCKET }}
+      SOURCE_PREFIX: ${{ vars.SOURCE_PREFIX }}
+      CODEBUILD_PROJECT: ${{ vars.CODEBUILD_PROJECT }}
+      DEPLOYER_IMAGE_DIGEST: ${{ vars.DEPLOYER_IMAGE_DIGEST }}
+      CLOUD_WINDOW_EVIDENCE_JSON: ${{ secrets.CLOUD_WINDOW_EVIDENCE_JSON }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Require reviewed environment configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          required=(ARTIFACT_BUCKET SOURCE_PREFIX CODEBUILD_PROJECT DEPLOYER_IMAGE_DIGEST CLOUD_WINDOW_EVIDENCE_JSON)
+          for variable in "${required[@]}"; do
+            test -n "${!variable:-}" || { echo "Missing reviewed environment configuration: ${variable}"; exit 1; }
+          done
+      - name: Assume staging launcher role with OIDC
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_LAUNCHER_ROLE_ARN }}
+          aws-region: us-east-1
+          role-session-name: phase3-k8s-staging
+      - name: Create immutable release manifest
+        shell: pwsh
+        run: |
+          git archive --format=zip --output "$env:RUNNER_TEMP/bundle.zip" $env:GITHUB_SHA
+          $sourceSha = (Get-FileHash -LiteralPath "$env:RUNNER_TEMP/bundle.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+          $manifest = [ordered]@{ schemaVersion = 1; environment = $env:DEPLOY_ENVIRONMENT; sourceCommit = $env:GITHUB_SHA; artifactSha256 = $sourceSha; deployerImageDigest = "sha256:$env:DEPLOYER_IMAGE_DIGEST"; contractVersion = 'phase3-v2'; migrationVersion = 'platform-v1'; promotedFromStaging = $false }
+          $manifest | ConvertTo-Json | Set-Content -LiteralPath "$env:RUNNER_TEMP/release-manifest.json" -NoNewline
+          "SOURCE_SHA256=$sourceSha" >> $env:GITHUB_ENV
+          "MANIFEST_SHA256=$((Get-FileHash -LiteralPath "$env:RUNNER_TEMP/release-manifest.json" -Algorithm SHA256).Hash.ToLowerInvariant())" >> $env:GITHUB_ENV
+      - name: Launch and wait for private staging executor
+        shell: pwsh
+        run: |
+          $evidence = Join-Path $env:RUNNER_TEMP 'cloud-window.json'
+          Set-Content -LiteralPath $evidence -NoNewline -Value $env:CLOUD_WINDOW_EVIDENCE_JSON
+          ./scripts/start-deploy.ps1 -Environment staging -SourceZip "$env:RUNNER_TEMP/bundle.zip" -ExpectedSha256 $env:SOURCE_SHA256 -ReleaseManifest "$env:RUNNER_TEMP/release-manifest.json" -ExpectedManifestSha256 $env:MANIFEST_SHA256 -Bucket $env:ARTIFACT_BUCKET -SourcePrefix $env:SOURCE_PREFIX -ProjectName $env:CODEBUILD_PROJECT -DeployerImageDigest $env:DEPLOYER_IMAGE_DIGEST -SourceCommit $env:GITHUB_SHA -CloudWindowEvidenceFile $evidence
+
+  deploy-production:
+    name: deploy-production
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: verify
+    runs-on: ubuntu-24.04
+    environment: production
+    concurrency:
+      group: phase3-k8s-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      DEPLOY_ENVIRONMENT: production
+      ARTIFACT_BUCKET: ${{ vars.ARTIFACT_BUCKET }}
+      SOURCE_PREFIX: ${{ vars.SOURCE_PREFIX }}
+      CODEBUILD_PROJECT: ${{ vars.CODEBUILD_PROJECT }}
+      DEPLOYER_IMAGE_DIGEST: ${{ vars.DEPLOYER_IMAGE_DIGEST }}
+      STAGING_MANIFEST_SHA256: ${{ vars.STAGING_PROMOTION_MANIFEST_SHA256 }}
+      STAGING_ARTIFACT_SHA256: ${{ vars.STAGING_PROMOTION_ARTIFACT_SHA256 }}
+      CLOUD_WINDOW_EVIDENCE_JSON: ${{ secrets.CLOUD_WINDOW_EVIDENCE_JSON }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Require reviewed environment configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          required=(ARTIFACT_BUCKET SOURCE_PREFIX CODEBUILD_PROJECT DEPLOYER_IMAGE_DIGEST STAGING_MANIFEST_SHA256 STAGING_ARTIFACT_SHA256 CLOUD_WINDOW_EVIDENCE_JSON)
+          for variable in "${required[@]}"; do
+            test -n "${!variable:-}" || { echo "Missing reviewed environment configuration: ${variable}"; exit 1; }
+          done
+      - name: Assume production launcher role with OIDC
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_LAUNCHER_ROLE_ARN }}
+          aws-region: us-east-1
+          role-session-name: phase3-k8s-production
+      - name: Create promotion-bound release manifest
+        shell: pwsh
+        run: |
+          git archive --format=zip --output "$env:RUNNER_TEMP/bundle.zip" $env:GITHUB_SHA
+          $sourceSha = (Get-FileHash -LiteralPath "$env:RUNNER_TEMP/bundle.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($sourceSha -cne $env:STAGING_ARTIFACT_SHA256) { throw 'Production content differs from the staging-tested artifact; route it through staging first.' }
+          $manifest = [ordered]@{ schemaVersion = 1; environment = $env:DEPLOY_ENVIRONMENT; sourceCommit = $env:GITHUB_SHA; artifactSha256 = $sourceSha; deployerImageDigest = "sha256:$env:DEPLOYER_IMAGE_DIGEST"; contractVersion = 'phase3-v2'; migrationVersion = 'platform-v1'; promotedFromStaging = $true; stagingManifestSha256 = $env:STAGING_MANIFEST_SHA256; stagingArtifactSha256 = $env:STAGING_ARTIFACT_SHA256 }
+          $manifest | ConvertTo-Json | Set-Content -LiteralPath "$env:RUNNER_TEMP/release-manifest.json" -NoNewline
+          "SOURCE_SHA256=$sourceSha" >> $env:GITHUB_ENV
+          "MANIFEST_SHA256=$((Get-FileHash -LiteralPath "$env:RUNNER_TEMP/release-manifest.json" -Algorithm SHA256).Hash.ToLowerInvariant())" >> $env:GITHUB_ENV
+      - name: Launch and wait for private production executor
+        shell: pwsh
+        run: |
+          $evidence = Join-Path $env:RUNNER_TEMP 'cloud-window.json'
+          Set-Content -LiteralPath $evidence -NoNewline -Value $env:CLOUD_WINDOW_EVIDENCE_JSON
+          ./scripts/start-deploy.ps1 -Environment production -SourceZip "$env:RUNNER_TEMP/bundle.zip" -ExpectedSha256 $env:SOURCE_SHA256 -ReleaseManifest "$env:RUNNER_TEMP/release-manifest.json" -ExpectedManifestSha256 $env:MANIFEST_SHA256 -Bucket $env:ARTIFACT_BUCKET -SourcePrefix $env:SOURCE_PREFIX -ProjectName $env:CODEBUILD_PROJECT -DeployerImageDigest $env:DEPLOYER_IMAGE_DIGEST -SourceCommit $env:GITHUB_SHA -CloudWindowEvidenceFile $evidence
