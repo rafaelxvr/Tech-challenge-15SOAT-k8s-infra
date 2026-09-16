@@ -127,7 +127,7 @@ run "allows_only_exact_foundation_addons_target_for_k8s_staging" {
 
   variables {
     launchers = {
-      k8s-staging = {
+      kubernetes-staging = {
         repository                        = "rafaelxvr/Tech-challenge-15SOAT-k8s-infra"
         environment                       = "staging"
         branch                            = "develop"
@@ -139,7 +139,7 @@ run "allows_only_exact_foundation_addons_target_for_k8s_staging" {
   }
 
   assert {
-    condition     = one([for statement in jsondecode(local.launcher_permission_policies["k8s-staging"]).Statement : statement if statement.Sid == "StartOnlyReviewedAdditionalProject"]).Resource == ["arn:aws:codebuild:us-east-1:123456789012:project/oficina-phase3-foundation-addons"]
+    condition     = one([for statement in jsondecode(local.launcher_permission_policies["kubernetes-staging"]).Statement : statement if statement.Sid == "StartOnlyReviewedAdditionalProject"]).Resource == ["arn:aws:codebuild:us-east-1:123456789012:project/oficina-phase3-foundation-addons"]
     error_message = "Only the reviewed K8S staging launcher may start the exact foundation-addons project."
   }
 }
@@ -149,8 +149,8 @@ run "rejects_any_other_foundation_addons_target" {
 
   variables {
     launchers = {
-      k8s-staging = {
-        repository                        = "example/oficina-k8s-infra"
+      kubernetes-staging = {
+        repository                        = "rafaelxvr/Tech-challenge-15SOAT-k8s-infra"
         environment                       = "staging"
         branch                            = "develop"
         source_prefix                     = "releases/k8s/staging"
@@ -163,12 +163,12 @@ run "rejects_any_other_foundation_addons_target" {
   expect_failures = [var.launchers]
 }
 
-run "rejects_foundation_addons_from_another_launcher" {
+run "rejects_foundation_addons_from_former_k8s_launcher_name" {
   command = plan
 
   variables {
     launchers = {
-      other-staging = {
+      k8s-staging = {
         repository                        = "rafaelxvr/Tech-challenge-15SOAT-k8s-infra"
         environment                       = "staging"
         branch                            = "develop"
@@ -187,7 +187,7 @@ run "rejects_foundation_addons_from_another_repository" {
 
   variables {
     launchers = {
-      k8s-staging = {
+      kubernetes-staging = {
         repository                        = "another-owner/Tech-challenge-15SOAT-k8s-infra"
         environment                       = "staging"
         branch                            = "develop"

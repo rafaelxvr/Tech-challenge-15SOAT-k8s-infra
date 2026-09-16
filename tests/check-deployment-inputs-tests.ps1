@@ -105,11 +105,11 @@ try {
     $tfvars = Get-Content -LiteralPath $tfvarsPath -Raw | ConvertFrom-Json
     if ($tfvars.account_id -ne '123456789012' -or $tfvars.launchers.'k8s-staging'.source_prefix -ne 'releases/k8s/staging') { throw 'Expected writer to produce usable Terraform variable input.' }
 
-    $addonsLauncher = $valid.Clone(); $addonsLauncher.launchers = @($valid.launchers[0].Clone()); $addonsLauncher.launchers[0].repository = 'rafaelxvr/Tech-challenge-15SOAT-k8s-infra'; $addonsLauncher.launchers[0].githubSubject = 'repo:rafaelxvr/Tech-challenge-15SOAT-k8s-infra:environment:staging'; $addonsLauncher.launchers[0].additionalCodeBuildProjectArns = @('arn:aws:codebuild:us-east-1:123456789012:project/oficina-phase3-foundation-addons')
+    $addonsLauncher = $valid.Clone(); $addonsLauncher.launchers = @($valid.launchers[0].Clone()); $addonsLauncher.launchers[0].name = 'kubernetes-staging'; $addonsLauncher.launchers[0].repository = 'rafaelxvr/Tech-challenge-15SOAT-k8s-infra'; $addonsLauncher.launchers[0].githubSubject = 'repo:rafaelxvr/Tech-challenge-15SOAT-k8s-infra:environment:staging'; $addonsLauncher.launchers[0].additionalCodeBuildProjectArns = @('arn:aws:codebuild:us-east-1:123456789012:project/oficina-phase3-foundation-addons')
     & $checker -InputFile (Write-Fixture 'foundation-addons-launcher' $addonsLauncher) -CallerArnForTest 'arn:aws:iam::123456789012:role/phase3-human' | Out-Null
     $wrongAddonsTarget = $addonsLauncher.Clone(); $wrongAddonsTarget.launchers = @($addonsLauncher.launchers[0].Clone()); $wrongAddonsTarget.launchers[0].additionalCodeBuildProjectArns = @('arn:aws:codebuild:us-east-1:123456789012:project/unreviewed-project')
     Assert-Rejected 'unreviewed-foundation-addons-target' $wrongAddonsTarget
-    $wrongAddonsLauncher = $addonsLauncher.Clone(); $wrongAddonsLauncher.launchers = @($addonsLauncher.launchers[0].Clone()); $wrongAddonsLauncher.launchers[0].name = 'other-staging'
+    $wrongAddonsLauncher = $addonsLauncher.Clone(); $wrongAddonsLauncher.launchers = @($addonsLauncher.launchers[0].Clone()); $wrongAddonsLauncher.launchers[0].name = 'k8s-staging'
     Assert-Rejected 'unreviewed-foundation-addons-launcher' $wrongAddonsLauncher
     $wrongAddonsRepository = $addonsLauncher.Clone(); $wrongAddonsRepository.launchers = @($addonsLauncher.launchers[0].Clone()); $wrongAddonsRepository.launchers[0].repository = 'another-owner/Tech-challenge-15SOAT-k8s-infra'; $wrongAddonsRepository.launchers[0].githubSubject = 'repo:another-owner/Tech-challenge-15SOAT-k8s-infra:environment:staging'
     Assert-Rejected 'unreviewed-foundation-addons-repository' $wrongAddonsRepository

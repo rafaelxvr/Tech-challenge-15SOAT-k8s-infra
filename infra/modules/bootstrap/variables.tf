@@ -86,7 +86,7 @@ variable "launchers" {
   validation {
     condition = alltrue([
       for name, launcher in var.launchers : length(launcher.additional_codebuild_project_arns) == 0 || (
-        name == "k8s-staging" && launcher.repository == "rafaelxvr/Tech-challenge-15SOAT-k8s-infra" && launcher.environment == "staging" && launcher.branch == "develop" && launcher.source_prefix == "releases/k8s/staging" && launcher.additional_codebuild_project_arns == toset(["arn:aws:codebuild:us-east-1:${var.account_id}:project/oficina-phase3-foundation-addons"])
+        name == "kubernetes-staging" && launcher.repository == "rafaelxvr/Tech-challenge-15SOAT-k8s-infra" && launcher.environment == "staging" && launcher.branch == "develop" && launcher.source_prefix == "releases/k8s/staging" && launcher.additional_codebuild_project_arns == toset(["arn:aws:codebuild:us-east-1:${var.account_id}:project/oficina-phase3-foundation-addons"])
       )
     ])
     error_message = "Only the reviewed rafaelxvr Kubernetes staging launcher may target the exact foundation-addons CodeBuild project."

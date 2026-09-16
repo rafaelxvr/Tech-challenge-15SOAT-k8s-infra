@@ -160,7 +160,7 @@ foreach ($launcher in @($launchers)) {
     if ($subject -match ':pull_request$') { Fail "launcher '$name' cannot trust a pull-request subject." }
     if ($sourcePrefix -notmatch '^[a-z0-9][a-z0-9/_-]*$') { Fail "launcher '$name' has an invalid source prefix." }
     if ($projectArn -notmatch "^arn:aws:codebuild:[a-z0-9-]+:${accountId}:project/[A-Za-z0-9_.-]+$") { Fail "launcher '$name' has a CodeBuild project outside accountId or with an invalid ARN." }
-    if ($additionalProjects.Count -gt 0 -and ($name -ne 'k8s-staging' -or $repository -ne 'rafaelxvr/Tech-challenge-15SOAT-k8s-infra' -or $environment -ne 'staging' -or $branch -ne 'develop' -or $sourcePrefix -ne 'releases/k8s/staging' -or $additionalProjects.Count -ne 1 -or [string]$additionalProjects[0] -ne "arn:aws:codebuild:us-east-1:${accountId}:project/oficina-phase3-foundation-addons")) { Fail "launcher '$name' may add only the exact foundation-addons project from the reviewed Kubernetes staging prefix." }
+    if ($additionalProjects.Count -gt 0 -and ($name -ne 'kubernetes-staging' -or $repository -ne 'rafaelxvr/Tech-challenge-15SOAT-k8s-infra' -or $environment -ne 'staging' -or $branch -ne 'develop' -or $sourcePrefix -ne 'releases/k8s/staging' -or $additionalProjects.Count -ne 1 -or [string]$additionalProjects[0] -ne "arn:aws:codebuild:us-east-1:${accountId}:project/oficina-phase3-foundation-addons")) { Fail "launcher '$name' may add only the exact foundation-addons project from the reviewed Kubernetes staging prefix." }
     if (-not $launcherKeys.Add("$repository/$environment")) { Fail "launcher '$name' duplicates a repository/environment identity." }
 }
 
