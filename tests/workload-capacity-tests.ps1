@@ -15,7 +15,8 @@ try {
         DeployerPrincipalArn = 'arn:aws:iam::123456789012:role/oficina-k8s-deploy'
         DbHost               = 'db.oficina.internal'
         DbCidr               = '10.20.0.0/24'
-        VpcCidr              = '10.0.0.0/16'
+        AlbSubnetCidrOne     = '10.42.0.0/24'
+        AlbSubnetCidrTwo     = '10.42.1.0/24'
         AppSecretArn         = 'arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/app-AbCdEf'
         OutputDirectory      = $tempDirectory
     }

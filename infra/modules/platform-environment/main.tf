@@ -7,26 +7,6 @@ locals {
   }
 }
 
-# The shared ALB is deliberately passed from foundation. This module only adds
-# its environment listener and never creates target attachments: the pinned AWS
-# Load Balancer Controller owns pod registration through TargetGroupBinding.
-resource "aws_lb_listener" "backend" {
-  load_balancer_arn = var.internal_alb_arn
-  port              = var.listener_port
-  protocol          = "HTTP"
-
-  default_action {
-    type = "fixed-response"
-    fixed_response {
-      content_type = "text/plain"
-      message_body = "No ready Oficina target is bound."
-      status_code  = "503"
-    }
-  }
-
-  tags = local.tags
-}
-
 resource "aws_lb_target_group" "app" {
   name        = substr("${local.name}-app", 0, 32)
   port        = 8080
@@ -48,24 +28,19 @@ resource "aws_lb_target_group" "app" {
   tags = local.tags
 }
 
-resource "aws_security_group_rule" "vpc_link_to_listener" {
-  type                     = "ingress"
-  security_group_id        = var.internal_alb_security_group_id
-  source_security_group_id = var.vpc_link_security_group_id
-  protocol                 = "tcp"
-  from_port                = var.listener_port
-  to_port                  = var.listener_port
-  description              = "Only the shared HTTP API VPC link may reach the ${var.environment} ALB listener."
-}
-
-resource "aws_security_group_rule" "alb_to_cluster_pods" {
-  type                     = "ingress"
-  security_group_id        = var.cluster_security_group_id
-  source_security_group_id = var.internal_alb_security_group_id
-  protocol                 = "tcp"
-  from_port                = 8080
-  to_port                  = 8080
-  description              = "Internal ALB health and application traffic to registered ${var.environment} pod IPs."
+# The foundation listener defaults to 503. This catch-all rule is the only
+# route that forwards an environment listener and it owns no target attachment.
+resource "aws_lb_listener_rule" "backend" {
+  listener_arn = var.backend_listener_arn
+  priority     = 100
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.app.arn
+  }
+  condition {
+    path_pattern { values = ["/*"] }
+  }
+  tags = local.tags
 }
 
 resource "aws_apigatewayv2_api" "this" {
@@ -78,7 +53,7 @@ resource "aws_apigatewayv2_integration" "backend" {
   api_id                 = aws_apigatewayv2_api.this.id
   integration_type       = "HTTP_PROXY"
   integration_method     = "ANY"
-  integration_uri        = aws_lb_listener.backend.arn
+  integration_uri        = var.backend_listener_arn
   connection_type        = "VPC_LINK"
   connection_id          = var.vpc_link_id
   payload_format_version = "1.0"
@@ -92,7 +67,7 @@ resource "aws_apigatewayv2_integration" "health" {
   api_id                 = aws_apigatewayv2_api.this.id
   integration_type       = "HTTP_PROXY"
   integration_method     = "GET"
-  integration_uri        = aws_lb_listener.backend.arn
+  integration_uri        = var.backend_listener_arn
   connection_type        = "VPC_LINK"
   connection_id          = var.vpc_link_id
   payload_format_version = "1.0"

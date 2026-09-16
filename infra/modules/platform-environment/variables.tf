@@ -15,11 +15,8 @@ variable "aws_region" {
 }
 variable "vpc_id" { type = string }
 variable "cluster_name" { type = string }
-variable "cluster_security_group_id" { type = string }
-variable "internal_alb_arn" { type = string }
-variable "internal_alb_security_group_id" { type = string }
+variable "backend_listener_arn" { type = string }
 variable "vpc_link_id" { type = string }
-variable "vpc_link_security_group_id" { type = string }
 variable "listener_port" {
   type = number
   validation {

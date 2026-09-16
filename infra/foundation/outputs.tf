@@ -5,6 +5,15 @@ output "private_subnet_ids" { value = module.network.private_subnet_ids }
 output "database_subnet_ids" { value = module.network.database_subnet_ids }
 output "cluster_name" { value = module.cluster.cluster_name }
 output "cluster_oidc_provider_arn" { value = module.cluster.cluster_oidc_provider_arn }
+output "cluster_oidc_issuer" { value = module.cluster.cluster_oidc_issuer }
 output "cluster_endpoint" { value = module.cluster.cluster_endpoint }
+output "cluster_security_group_id" { value = module.cluster.cluster_security_group_id }
+output "internal_alb_arn" { value = aws_lb.internal.arn }
+output "internal_alb_security_group_id" { value = aws_security_group.internal_alb.id }
+output "vpc_link_id" { value = aws_apigatewayv2_vpc_link.internal.id }
+output "vpc_link_security_group_id" { value = aws_security_group.vpc_link.id }
+output "backend_listener_arns" { value = { for environment, listener in aws_lb_listener.backend : environment => listener.arn } }
+output "alb_subnet_cidrs" { value = var.public_subnet_cidrs }
+output "load_balancer_controller_irsa_role_arn" { value = aws_iam_role.load_balancer_controller.arn }
 output "codebuild_projects" { value = module.deployment_executor.codebuild_projects }
 output "deployer_repository_url" { value = module.deployment_executor.ecr_repository_url }

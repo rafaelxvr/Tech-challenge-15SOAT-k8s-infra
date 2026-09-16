@@ -9,7 +9,8 @@ param(
     [Parameter(Mandatory)] [string]$DeployerPrincipalArn,
     [Parameter(Mandatory)] [string]$DbHost,
     [Parameter(Mandatory)] [string]$DbCidr,
-    [Parameter(Mandatory)] [string]$VpcCidr,
+    [Parameter(Mandatory)] [string]$AlbSubnetCidrOne,
+    [Parameter(Mandatory)] [string]$AlbSubnetCidrTwo,
     [Parameter(Mandatory)] [string]$AppSecretArn,
     [Parameter(Mandatory)] [string]$OutputDirectory
 )
@@ -23,8 +24,8 @@ foreach ($arn in @($AppIrsaRoleArn, $DeployerPrincipalArn)) {
     if ($arn -notmatch '^arn:aws:iam::[0-9]{12}:role/.+$') { throw 'IRSA and deployer inputs must be IAM role ARNs.' }
 }
 if ($AppSecretArn -notmatch '^arn:aws:secretsmanager:us-east-1:[0-9]{12}:secret:.+$') { throw 'AppSecretArn must be a Secrets Manager ARN.' }
-foreach ($cidr in @($DbCidr, $VpcCidr)) {
-    if ($cidr -notmatch '^([0-9]{1,3}\.){3}[0-9]{1,3}/([0-9]|[12][0-9]|3[0-2])$') { throw 'DbCidr and VpcCidr must be CIDR blocks.' }
+foreach ($cidr in @($DbCidr, $AlbSubnetCidrOne, $AlbSubnetCidrTwo)) {
+    if ($cidr -notmatch '^([0-9]{1,3}\.){3}[0-9]{1,3}/([0-9]|[12][0-9]|3[0-2])$') { throw 'Database and ALB subnet inputs must be CIDR blocks.' }
 }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -40,7 +41,9 @@ $tokens = [ordered]@{
     '${DEPLOYER_PRINCIPAL_ARN}'  = $DeployerPrincipalArn
     '${DB_HOST}'                 = $DbHost
     '${DB_CIDR}'                 = $DbCidr
-    '${VPC_CIDR}'                = $VpcCidr
+    '${ALB_SUBNET_CIDR_ONE}'     = $AlbSubnetCidrOne
+    '${ALB_SUBNET_CIDR_TWO}'     = $AlbSubnetCidrTwo
+    '${ENVIRONMENT}'             = $Environment
     '${APP_SECRET_ARN}'          = $AppSecretArn
 }
 foreach ($token in $tokens.Keys) { $rendered = $rendered.Replace($token, $tokens[$token]) }

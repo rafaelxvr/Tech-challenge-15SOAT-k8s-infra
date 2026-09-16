@@ -18,7 +18,7 @@ function Assert-Contains([string]$Text, [string]$Expected, [string]$Message) {
 
 try {
     foreach ($environment in @('staging', 'production')) {
-        $file = & $renderer -Environment $environment -Image $image -TargetGroupArn $targetGroup -AppIrsaRoleArn $role -DeployerPrincipalArn $deployer -DbHost 'db.oficina.internal' -DbCidr '10.20.0.0/24' -VpcCidr '10.0.0.0/16' -AppSecretArn $secret -OutputDirectory $tempDirectory
+        $file = & $renderer -Environment $environment -Image $image -TargetGroupArn $targetGroup -AppIrsaRoleArn $role -DeployerPrincipalArn $deployer -DbHost 'db.oficina.internal' -DbCidr '10.20.0.0/24' -AlbSubnetCidrOne '10.42.0.0/24' -AlbSubnetCidrTwo '10.42.1.0/24' -AppSecretArn $secret -OutputDirectory $tempDirectory
         $manifest = Get-Content -LiteralPath $file -Raw
         if ($manifest -match '\$\{[A-Z_]+\}') { throw "Rendered $environment manifest still has deployment tokens." }
         Assert-Contains $manifest "name: oficina-$environment" "Expected isolated $environment namespace."
@@ -34,6 +34,10 @@ try {
         Assert-Contains $manifest 'targetGroupARN: arn:aws:elasticloadbalancing' 'TargetGroupBinding must consume only the platform target group.'
         Assert-Contains $manifest 'default-deny-ingress-egress' 'Namespace needs default deny ingress and egress.'
         Assert-Contains $manifest 'port: 5432' 'App network policy must restrict database traffic to PostgreSQL.'
+        Assert-Contains $manifest ('oficina.io/environment: ' + $environment) 'App traffic must allow only the same environment namespace.'
+        Assert-Contains $manifest 'cidr: 10.42.0.0/24' 'ALB ingress must use the first dedicated source subnet, not all VPC traffic.'
+        Assert-Contains $manifest 'cidr: 10.42.1.0/24' 'ALB ingress must use the second dedicated source subnet, not all VPC traffic.'
+        if ($manifest.Contains('cidr: 10.0.0.0/16')) { throw 'App ingress must not admit every source in the VPC.' }
         if ($manifest -match 'stringData:') { throw 'Rendered platform manifest must not contain plaintext secret values.' }
     }
 
@@ -46,7 +50,8 @@ try {
     Assert-Contains $production 'kind: PodDisruptionBudget' 'Production requires a PDB.'
     Assert-Contains $production 'minAvailable: 1' 'Production PDB minimum availability must be one.'
 
-    Write-Output 'PASS: platform manifests render with bounded workload capacity, probes, RBAC, target binding, and namespace isolation.'
+    if ($staging -notmatch 'oficina.io/environment: staging' -or $production -notmatch 'oficina.io/environment: production') { throw 'Rendered policy did not retain environment-specific namespace isolation.' }
+    Write-Output 'PASS: rendered platform manifests enforce bounded workload capacity, target binding, and environment-specific policies.'
 }
 finally {
     Remove-Item -LiteralPath $tempDirectory -Recurse -Force -ErrorAction SilentlyContinue

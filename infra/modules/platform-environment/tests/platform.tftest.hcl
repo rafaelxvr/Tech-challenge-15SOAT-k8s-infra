@@ -4,19 +4,16 @@ run "private_environment_contract" {
   command = plan
 
   variables {
-    name                           = "oficina"
-    environment                    = "staging"
-    aws_region                     = "us-east-1"
-    vpc_id                         = "vpc-12345678"
-    cluster_name                   = "oficina"
-    cluster_security_group_id      = "sg-cluster"
-    internal_alb_arn               = "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/oficina/1234567890abcdef"
-    internal_alb_security_group_id = "sg-alb"
-    vpc_link_id                    = "abc123"
-    vpc_link_security_group_id     = "sg-vpclink"
-    listener_port                  = 8080
-    namespace                      = "oficina-staging"
-    deployer_principal_arn         = "arn:aws:iam::123456789012:role/oficina-k8s-staging-deploy"
+    name                   = "oficina"
+    environment            = "staging"
+    aws_region             = "us-east-1"
+    vpc_id                 = "vpc-12345678"
+    cluster_name           = "oficina"
+    backend_listener_arn   = "arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/oficina/1234567890abcdef/abcdef1234567890"
+    vpc_link_id            = "abc123"
+    listener_port          = 8080
+    namespace              = "oficina-staging"
+    deployer_principal_arn = "arn:aws:iam::123456789012:role/oficina-k8s-staging-deploy"
   }
 
   assert {
@@ -32,7 +29,7 @@ run "private_environment_contract" {
     error_message = "Health mapping and initial throttling must remain explicit."
   }
   assert {
-    condition     = aws_eks_access_entry.deployer.type == "STANDARD" && aws_security_group_rule.vpc_link_to_listener.from_port == 8080
-    error_message = "The deployer must be a standard access entry and the link may reach only its listener."
+    condition     = aws_eks_access_entry.deployer.type == "STANDARD" && aws_lb_listener_rule.backend.listener_arn == var.backend_listener_arn && aws_lb_listener_rule.backend.action[0].type == "forward" && length(aws_lb_listener_rule.backend.condition) == 1 && alltrue([for condition in aws_lb_listener_rule.backend.condition : length(condition.path_pattern) == 1])
+    error_message = "The deployer must be standard and the listener must forward every environment path to its target group."
   }
 }

@@ -18,7 +18,21 @@ spec:
   ingress:
     - from:
         - ipBlock:
-            cidr: ${VPC_CIDR}
+            cidr: ${ALB_SUBNET_CIDR_ONE}
+        - ipBlock:
+            cidr: ${ALB_SUBNET_CIDR_TWO}
+        - namespaceSelector:
+            matchLabels:
+              oficina.io/environment: ${ENVIRONMENT}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: oficina-app
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: metrics-server
       ports:
         - protocol: TCP
           port: 8080
@@ -27,6 +41,9 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
       ports:
         - protocol: UDP
           port: 53
@@ -39,7 +56,8 @@ spec:
         - protocol: TCP
           port: 5432
     # SQS, Secrets Manager and STS resolve to AWS public service addresses in
-    # this bounded topology. VPC routes/SGs constrain this HTTPS-only egress.
+    # this bounded topology. Per-environment IRSA and VPC routes/SGs constrain
+    # this HTTPS-only egress; standard NetworkPolicy has no AWS FQDN selector.
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0

@@ -1,14 +1,16 @@
 [CmdletBinding()]
 param(
     [switch]$Run,
-    [string]$Context
+    [string]$Context,
+    [string]$SourceNamespace = 'oficina-staging',
+    [string]$TargetNamespace = 'oficina-production'
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 if (-not $Run) {
-    Write-Output 'SKIP: pass -Run only against a disposable cluster with Cilium enforcing NetworkPolicy.'
+    Write-Output 'SKIP: pass -Run only against a disposable Cilium-enforced cluster after both platform overlays are applied.'
     exit 0
 }
 
@@ -21,66 +23,45 @@ if ($LASTEXITCODE -ne 0 -or -not $cilium) {
     throw 'Refusing isolation test: Cilium was not found. Kind default networking does not prove NetworkPolicy enforcement.'
 }
 
-$suffix = [guid]::NewGuid().ToString('N').Substring(0, 8)
-$sourceNamespace = "oficina-isolation-source-$suffix"
-$targetNamespace = "oficina-isolation-target-$suffix"
-$targetPod = 'target'
-
+$probeName = "network-policy-probe-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
 try {
+    & $kubectl.Source @contextArguments get namespace $SourceNamespace, $TargetNamespace | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Expected rendered platform namespaces are absent.' }
+    foreach ($namespace in @($SourceNamespace, $TargetNamespace)) {
+        & $kubectl.Source @contextArguments -n $namespace get networkpolicy default-deny-ingress-egress,oficina-app-allow-required-paths | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Expected rendered platform policies are absent from $namespace." }
+    }
+
     @"
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: $sourceNamespace
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: $targetNamespace
----
 apiVersion: v1
 kind: Pod
 metadata:
-  name: $targetPod
-  namespace: $targetNamespace
-  labels: { app: target }
+  name: $probeName
+  namespace: $SourceNamespace
+  labels:
+    app.kubernetes.io/name: oficina-app
 spec:
   containers:
-    - name: http
+    - name: probe
       image: registry.k8s.io/e2e-test-images/agnhost:2.45
-      args: ["netexec", "--http-port=8080"]
+      args: ["pause"]
       resources:
         requests: { cpu: 10m, memory: 32Mi }
         limits: { cpu: 50m, memory: 64Mi }
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: target
-  namespace: $targetNamespace
-spec:
-  selector: { app: target }
-  ports: [{ port: 8080, targetPort: 8080 }]
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: default-deny-ingress
-  namespace: $targetNamespace
-spec:
-  podSelector: {}
-  policyTypes: ["Ingress"]
 "@ | & $kubectl.Source @contextArguments apply -f - | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'Failed to create isolation fixture.' }
+    if ($LASTEXITCODE -ne 0) { throw 'Failed to create the app-labeled platform-policy probe.' }
 
-    & $kubectl.Source @contextArguments -n $targetNamespace wait --for=condition=Ready "pod/$targetPod" --timeout=120s | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'Isolation fixture target did not become ready.' }
+    & $kubectl.Source @contextArguments -n $SourceNamespace wait --for=condition=Ready "pod/$probeName" --timeout=120s | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Platform-policy probe did not become ready.' }
 
-    $probe = & $kubectl.Source @contextArguments -n $sourceNamespace run probe --rm -i --restart=Never --image=registry.k8s.io/e2e-test-images/agnhost:2.45 -- wget -qO- --timeout=5 "http://target.$targetNamespace.svc.cluster.local:8080" 2>&1
-    if ($LASTEXITCODE -eq 0) { throw "Cross-namespace request unexpectedly succeeded: $probe" }
+    $dns = & $kubectl.Source @contextArguments -n $SourceNamespace exec $probeName -- getent hosts kubernetes.default.svc 2>&1
+    if ($LASTEXITCODE -ne 0 -or -not $dns) { throw 'App-labeled probe could not resolve CoreDNS through the actual platform policy.' }
 
-    Write-Output 'PASS: Cilium enforced default-deny ingress and rejected the cross-namespace request.'
+    $crossEnvironment = & $kubectl.Source @contextArguments -n $SourceNamespace exec $probeName -- wget -qO- --timeout=5 "http://oficina-app.$TargetNamespace.svc.cluster.local:8080" 2>&1
+    if ($LASTEXITCODE -eq 0) { throw "Cross-namespace request unexpectedly succeeded: $crossEnvironment" }
+
+    Write-Output 'PASS: Cilium enforced the rendered platform policy: DNS worked and staging-to-production app traffic was rejected.'
 }
 finally {
-    & $kubectl.Source @contextArguments delete namespace $sourceNamespace, $targetNamespace --ignore-not-found --wait=false 2>$null | Out-Null
+    & $kubectl.Source @contextArguments -n $SourceNamespace delete pod $probeName --ignore-not-found --wait=false 2>$null | Out-Null
 }

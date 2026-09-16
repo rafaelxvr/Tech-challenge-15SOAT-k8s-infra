@@ -1,4 +1,5 @@
 mock_provider "aws" {}
+mock_provider "helm" {}
 
 variables {
   aws_region               = "us-east-1"
@@ -37,5 +38,21 @@ run "foundation_output_schema_is_bounded" {
   assert {
     condition     = length(output.codebuild_projects) == 8 && alltrue([for project in values(output.codebuild_projects) : contains(keys(project), "projectName") && contains(keys(project), "roleName") && contains(keys(project), "roleArn")])
     error_message = "Foundation must export the bounded eight-project deployer name and role map."
+  }
+  assert {
+    condition     = aws_lb.internal.load_balancer_type == "application" && length(aws_lb_listener.backend) == 2 && aws_lb_listener.backend["staging"].port == 8080 && aws_lb_listener.backend["production"].port == 8081 && aws_lb_listener.backend["staging"].default_action[0].fixed_response[0].status_code == "503"
+    error_message = "Foundation must own one private ALB, both safe default listeners, and the shared private VPC link."
+  }
+  assert {
+    condition     = length(aws_vpc_security_group_ingress_rule.vpc_link_to_alb) == 2 && aws_vpc_security_group_ingress_rule.alb_to_cluster.from_port == 8080 && length(aws_security_group.internal_alb.ingress) == 0 && length(aws_security_group.internal_alb.egress) == 0
+    error_message = "ALB traffic must be closed by default and allow only VPC-link listeners plus port 8080 to registered pods."
+  }
+  assert {
+    condition     = helm_release.aws_load_balancer_controller.version == "1.12.0" && helm_release.metrics_server.version == "3.12.2" && helm_release.secrets_store_csi_driver.version == "1.4.8" && helm_release.secrets_store_csi_aws_provider.version == "0.3.9"
+    error_message = "Every required controller must be installed from an exact reviewed chart version."
+  }
+  assert {
+    condition     = aws_iam_role.load_balancer_controller.name == "oficina-phase3-aws-load-balancer-controller" && can(regex("RegisterTargets", aws_iam_role_policy.load_balancer_controller.policy)) && length(keys(output.backend_listener_arns)) == 2
+    error_message = "The controller needs a dedicated narrow target-registration policy and both listener exports."
   }
 }
