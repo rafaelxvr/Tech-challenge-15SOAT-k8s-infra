@@ -28,7 +28,7 @@ locals {
   codebuild_policies = {
     for key, deployment in var.deployments : key => jsonencode({
       Version = "2012-10-17"
-      Statement = [
+      Statement = concat([
         {
           Sid      = "ReadOnlyReviewedSourcePrefix"
           Effect   = "Allow"
@@ -60,8 +60,60 @@ locals {
           Effect   = "Allow"
           Action   = local.executor_eks_actions[key]
           Resource = local.executor_eks_resources[key]
+        },
+        {
+          Sid       = "ListOnlyItsTerraformStatePrefix"
+          Effect    = "Allow"
+          Action    = "s3:ListBucket"
+          Resource  = "arn:aws:s3:::${var.state_bucket_name}"
+          Condition = { StringLike = { "s3:prefix" = [deployment.terraform_state_key, "${deployment.terraform_state_key}.tflock"] } }
+        },
+        {
+          Sid      = "ReadWriteOnlyItsTerraformState"
+          Effect   = "Allow"
+          Action   = ["s3:GetObject", "s3:PutObject"]
+          Resource = "arn:aws:s3:::${var.state_bucket_name}/${deployment.terraform_state_key}"
+        },
+        {
+          Sid      = "LockOnlyItsTerraformLockfile"
+          Effect   = "Allow"
+          Action   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+          Resource = "arn:aws:s3:::${var.state_bucket_name}/${deployment.terraform_state_key}.tflock"
         }
-      ]
+        ], [for statement in [
+          {
+            Sid      = "RunOnlyReviewedKubernetesPlatformProviderActions"
+            Effect   = "Allow"
+            Action   = ["sts:GetCallerIdentity", "apigateway:GET", "apigateway:POST", "apigateway:PATCH", "apigateway:DELETE", "elasticloadbalancing:DescribeListeners", "elasticloadbalancing:DescribeRules", "elasticloadbalancing:DescribeTargetGroups", "elasticloadbalancing:DescribeTags"]
+            Resource = "*"
+          },
+          {
+            Sid      = "ManageOnlyItsClusterAccessEntry"
+            Effect   = "Allow"
+            Action   = ["eks:CreateAccessEntry", "eks:DeleteAccessEntry", "eks:DescribeAccessEntry", "eks:ListAccessEntries", "eks:AssociateAccessPolicy", "eks:DisassociateAccessPolicy", "eks:ListAssociatedAccessPolicies"]
+            Resource = var.cluster_arn
+          },
+          {
+            Sid      = "CreateOnlyTaggedEnvironmentTargetGroups"
+            Effect   = "Allow"
+            Action   = "elasticloadbalancing:CreateTargetGroup"
+            Resource = "*"
+            Condition = { StringEquals = {
+              "aws:RequestTag/project"     = "oficina-phase3"
+              "aws:RequestTag/environment" = deployment.environment
+            } }
+          },
+          {
+            Sid    = "ManageOnlyNamedEnvironmentTargetAndListenerRules"
+            Effect = "Allow"
+            Action = ["elasticloadbalancing:DeleteTargetGroup", "elasticloadbalancing:ModifyTargetGroup", "elasticloadbalancing:ModifyTargetGroupAttributes", "elasticloadbalancing:CreateRule", "elasticloadbalancing:ModifyRule", "elasticloadbalancing:DeleteRule"]
+            Resource = [
+              "arn:aws:elasticloadbalancing:${var.aws_region}:${var.account_id}:targetgroup/${var.name}-${deployment.environment}-*/*",
+              "arn:aws:elasticloadbalancing:${var.aws_region}:${var.account_id}:listener/app/${var.name}-internal/*/*",
+              "arn:aws:elasticloadbalancing:${var.aws_region}:${var.account_id}:listener-rule/app/${var.name}-internal/*/*/*"
+            ]
+          }
+      ] : statement if deployment.repository == var.kubernetes_repository])
     })
   }
   # The executor's buildspec is Terraform-owned. Nothing from the archive is
@@ -97,6 +149,15 @@ locals {
             actual_manifest_sha="$(sha256sum "$${workdir}/release-manifest.json" | awk '{print $1}')"
             if [ "$${actual_manifest_sha}" != "$${EXPECTED_MANIFEST_SHA256}" ]; then
               echo 'Release manifest digest mismatch.'
+              exit 1
+            fi
+            for variable in TFVARS_OBJECT_KEY TFVARS_VERSION_ID EXPECTED_TFVARS_SHA256; do
+              if [ -z "$${!variable:-}" ]; then echo "Required Terraform variables input is missing: $${variable}"; exit 1; fi
+            done
+            aws s3api get-object --bucket "$${SOURCE_BUCKET}" --key "$${TFVARS_OBJECT_KEY}" --version-id "$${TFVARS_VERSION_ID}" "$${DEPLOYMENT_TFVARS_PATH}" >/dev/null
+            actual_tfvars_sha="$(sha256sum "$${DEPLOYMENT_TFVARS_PATH}" | awk '{print $1}')"
+            if [ "$${actual_tfvars_sha}" != "$${EXPECTED_TFVARS_SHA256}" ]; then
+              echo 'Terraform variables digest mismatch.'
               exit 1
             fi
             unzip -q "$${workdir}/bundle.zip" -d "$${workdir}/release"
@@ -159,6 +220,16 @@ resource "aws_codebuild_project" "deploy" {
     type                        = "LINUX_CONTAINER"
     image_pull_credentials_type = "SERVICE_ROLE"
     privileged_mode             = false
+    environment_variable {
+      name  = "DEPLOYMENT_MODE"
+      value = each.value.deployment_mode
+      type  = "PLAINTEXT"
+    }
+    environment_variable {
+      name  = "DEPLOYMENT_TFVARS_PATH"
+      value = each.value.terraform_variables_path
+      type  = "PLAINTEXT"
+    }
   }
   vpc_config {
     vpc_id             = var.vpc_id

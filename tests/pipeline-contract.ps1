@@ -49,15 +49,35 @@ try {
     Assert-Throws { & (Join-Path $repoRoot 'scripts/export-outputs.ps1') -TerraformOutputFile $outputs -Scope foundation -Environment foundation -SourceCommit ('a' * 40) -AllowlistFile $badAllowlist -OutputFile $published } 'allowlists containing secret/state fields must be rejected.'
 
     $bundle = Join-Path $temp 'bundle.zip'; [System.IO.File]::WriteAllBytes($bundle, [byte[]](1, 2, 3, 4))
+    $tfvars = Join-Path $temp 'terraform.tfvars.json'; '{}' | Set-Content -LiteralPath $tfvars -NoNewline
     $sourceSha = (Get-FileHash -LiteralPath $bundle -Algorithm SHA256).Hash.ToLowerInvariant()
     $manifest = Join-Path $temp 'release-manifest.json'
     @{ schemaVersion = 1; environment = 'staging'; sourceCommit = ('a' * 40); artifactSha256 = $sourceSha; deployerImageDigest = ('sha256:' + ('b' * 64)); contractVersion = 'phase3-v2'; migrationVersion = 'platform-v1'; promotedFromStaging = $false } | ConvertTo-Json | Set-Content -LiteralPath $manifest -NoNewline
     $manifestSha = (Get-FileHash -LiteralPath $manifest -Algorithm SHA256).Hash.ToLowerInvariant()
     $openEvidence = Join-Path $temp 'open-window.json'
     [ordered]@{ windowStartUtc = $now.AddMinutes(-2).ToString('o'); windowEndUtc = $now.AddMinutes(30).ToString('o'); recordedAtUtc = $now.ToString('o'); accountEvidenceReference = 'reviewed-study-account-evidence'; projectAllowanceUsd = 80; reserveUsd = 20; currentEstimatedSpendUsd = 0 } | ConvertTo-Json | Set-Content -LiteralPath $openEvidence -NoNewline
-    & (Join-Path $repoRoot 'scripts/start-deploy.ps1') -Environment staging -SourceZip $bundle -ExpectedSha256 $sourceSha -ReleaseManifest $manifest -ExpectedManifestSha256 $manifestSha -Bucket 'oficina-artifacts-example' -SourcePrefix 'releases/k8s/staging' -ProjectName 'oficina-phase3-oficina-k8s-infra-staging-deploy' -DeployerImageDigest ('b' * 64) -SourceCommit ('a' * 40) -CloudWindowEvidenceFile $openEvidence -DryRun | Out-Null
-    Assert-Throws { & (Join-Path $repoRoot 'scripts/start-deploy.ps1') -Environment staging -SourceZip $bundle -ExpectedSha256 $sourceSha -ReleaseManifest $manifest -ExpectedManifestSha256 $manifestSha -Bucket 'oficina-artifacts-example' -SourcePrefix 'releases/k8s/staging' -ProjectName 'unreviewed-staging-deploy' -DeployerImageDigest ('b' * 64) -SourceCommit ('a' * 40) -CloudWindowEvidenceFile $openEvidence -DryRun } 'an unreviewed CodeBuild project must be rejected before launch.'
-    Assert-Throws { & (Join-Path $repoRoot 'scripts/start-deploy.ps1') -Environment production -SourceZip $bundle -ExpectedSha256 $sourceSha -ReleaseManifest $manifest -ExpectedManifestSha256 $manifestSha -Bucket 'oficina-artifacts-example' -SourcePrefix 'releases/k8s/production' -ProjectName 'oficina-phase3-oficina-k8s-infra-production-deploy' -DeployerImageDigest ('b' * 64) -SourceCommit ('a' * 40) -CloudWindowEvidenceFile $openEvidence -DryRun } 'production must require a staging promotion manifest.'
+    & (Join-Path $repoRoot 'scripts/start-deploy.ps1') -Environment staging -SourceZip $bundle -ExpectedSha256 $sourceSha -ReleaseManifest $manifest -ExpectedManifestSha256 $manifestSha -Bucket 'oficina-artifacts-example' -SourcePrefix 'releases/k8s/staging' -ProjectName 'oficina-phase3-oficina-k8s-infra-staging-deploy' -DeployerImageDigest ('b' * 64) -SourceCommit ('a' * 40) -CloudWindowEvidenceFile $openEvidence -TerraformVariablesFile $tfvars -DryRun | Out-Null
+    Assert-Throws { & (Join-Path $repoRoot 'scripts/start-deploy.ps1') -Environment staging -SourceZip $bundle -ExpectedSha256 $sourceSha -ReleaseManifest $manifest -ExpectedManifestSha256 $manifestSha -Bucket 'oficina-artifacts-example' -SourcePrefix 'releases/k8s/staging' -ProjectName 'unreviewed-staging-deploy' -DeployerImageDigest ('b' * 64) -SourceCommit ('a' * 40) -CloudWindowEvidenceFile $openEvidence -TerraformVariablesFile $tfvars -DryRun } 'an unreviewed CodeBuild project must be rejected before launch.'
+    Assert-Throws { & (Join-Path $repoRoot 'scripts/start-deploy.ps1') -Environment production -SourceZip $bundle -ExpectedSha256 $sourceSha -ReleaseManifest $manifest -ExpectedManifestSha256 $manifestSha -Bucket 'oficina-artifacts-example' -SourcePrefix 'releases/k8s/production' -ProjectName 'oficina-phase3-oficina-k8s-infra-production-deploy' -DeployerImageDigest ('b' * 64) -SourceCommit ('a' * 40) -CloudWindowEvidenceFile $openEvidence -TerraformVariablesFile $tfvars -DryRun } 'production must require a staging promotion manifest.'
+
+    $promotion = Join-Path $temp 'staging-promotion.json'
+    @{ schemaVersion = 1; environment = 'staging'; sourceCommit = ('a' * 40); artifactSha256 = $sourceSha; sourceKey = 'releases/k8s/staging/bundle.zip'; sourceVersionId = 'source-version'; releaseManifestKey = ('releases/k8s/staging/manifests/' + ('a' * 40) + '.json'); releaseManifestVersionId = 'manifest-version'; releaseManifestSha256 = $manifestSha; codeBuildProjectName = 'oficina-phase3-oficina-k8s-infra-staging-deploy'; codeBuildBuildId = 'oficina-phase3-oficina-k8s-infra-staging-deploy:abc123'; buildStatus = 'SUCCEEDED'; issuedAtUtc = $now.ToString('o') } | ConvertTo-Json | Set-Content -LiteralPath $promotion -NoNewline
+    $promotionSha = (Get-FileHash -LiteralPath $promotion -Algorithm SHA256).Hash.ToLowerInvariant()
+    $promotionOriginal = Get-Content -LiteralPath $promotion -Raw
+    $verifiedPromotion = Join-Path $temp 'verified-promotion.json'
+    & (Join-Path $repoRoot 'scripts/verify-staging-promotion.ps1') -Bucket 'oficina-artifacts-example' -PromotionKey ('releases/k8s/staging/promotions/' + ('a' * 40) + '.json') -PromotionVersionId 'promotion-version' -ExpectedPromotionSha256 $promotionSha -ExpectedArtifactSha256 $sourceSha -PromotionFileForTest $promotion -StagingManifestFileForTest $manifest -OutputFile $verifiedPromotion | Out-Null
+    Assert-True ((Get-Content -LiteralPath $verifiedPromotion -Raw | ConvertFrom-Json).verifiedBy -eq 'verify-staging-promotion.ps1') 'a successful staging attestation must produce a local verified promotion document.'
+    Add-Content -LiteralPath $promotion -Value 'tampered'
+    Assert-Throws { & (Join-Path $repoRoot 'scripts/verify-staging-promotion.ps1') -Bucket 'oficina-artifacts-example' -PromotionKey ('releases/k8s/staging/promotions/' + ('a' * 40) + '.json') -PromotionVersionId 'promotion-version' -ExpectedPromotionSha256 $promotionSha -ExpectedArtifactSha256 $sourceSha -PromotionFileForTest $promotion -StagingManifestFileForTest $manifest -OutputFile $verifiedPromotion } 'tampered promotion evidence must be rejected.'
+    $unproven = $promotionOriginal | ConvertFrom-Json; $unproven.buildStatus = 'FAILED'; $unproven | ConvertTo-Json | Set-Content -LiteralPath $promotion -NoNewline
+    $unprovenSha = (Get-FileHash -LiteralPath $promotion -Algorithm SHA256).Hash.ToLowerInvariant()
+    Assert-Throws { & (Join-Path $repoRoot 'scripts/verify-staging-promotion.ps1') -Bucket 'oficina-artifacts-example' -PromotionKey ('releases/k8s/staging/promotions/' + ('a' * 40) + '.json') -PromotionVersionId 'promotion-version' -ExpectedPromotionSha256 $unprovenSha -ExpectedArtifactSha256 $sourceSha -PromotionFileForTest $promotion -StagingManifestFileForTest $manifest -OutputFile $verifiedPromotion } 'an unsuccessful staging build cannot promote production.'
+    Assert-Throws { & (Join-Path $repoRoot 'scripts/verify-staging-promotion.ps1') -Bucket 'oficina-artifacts-example' -PromotionKey ('releases/k8s/staging/promotions/' + ('a' * 40) + '.json') -PromotionVersionId 'promotion-version' -ExpectedPromotionSha256 $unprovenSha -ExpectedArtifactSha256 $sourceSha -PromotionFileForTest (Join-Path $temp 'absent.json') -StagingManifestFileForTest $manifest -OutputFile $verifiedPromotion } 'absent promotion evidence must be rejected.'
+    $productionManifest = Join-Path $temp 'production-release-manifest.json'
+    @{ schemaVersion = 1; environment = 'production'; sourceCommit = ('a' * 40); artifactSha256 = $sourceSha; deployerImageDigest = ('sha256:' + ('b' * 64)); contractVersion = 'phase3-v2'; migrationVersion = 'platform-v1'; promotedFromStaging = $true; stagingManifestSha256 = $manifestSha; stagingArtifactSha256 = $sourceSha; stagingPromotionSha256 = $promotionSha } | ConvertTo-Json | Set-Content -LiteralPath $productionManifest -NoNewline
+    $productionManifestSha = (Get-FileHash -LiteralPath $productionManifest -Algorithm SHA256).Hash.ToLowerInvariant()
+    Assert-Throws { & (Join-Path $repoRoot 'scripts/start-deploy.ps1') -Environment production -SourceZip $bundle -ExpectedSha256 $sourceSha -ReleaseManifest $productionManifest -ExpectedManifestSha256 $productionManifestSha -Bucket 'oficina-artifacts-example' -SourcePrefix 'releases/k8s/production' -ProjectName 'oficina-phase3-oficina-k8s-infra-production-deploy' -DeployerImageDigest ('b' * 64) -SourceCommit ('a' * 40) -CloudWindowEvidenceFile $openEvidence -TerraformVariablesFile $tfvars -DryRun } 'production must not launch without a verified staging promotion document.'
+    & (Join-Path $repoRoot 'scripts/start-deploy.ps1') -Environment production -SourceZip $bundle -ExpectedSha256 $sourceSha -ReleaseManifest $productionManifest -ExpectedManifestSha256 $productionManifestSha -Bucket 'oficina-artifacts-example' -SourcePrefix 'releases/k8s/production' -ProjectName 'oficina-phase3-oficina-k8s-infra-production-deploy' -DeployerImageDigest ('b' * 64) -SourceCommit ('a' * 40) -CloudWindowEvidenceFile $openEvidence -TerraformVariablesFile $tfvars -VerifiedPromotionFile $verifiedPromotion -DryRun | Out-Null
 
     $workflow = Get-Content -LiteralPath (Join-Path $repoRoot '.github/workflows/ci-cd.yml') -Raw
     Assert-Contains $workflow 'pull_request:' 'PR validation must be present.'
@@ -65,7 +85,7 @@ try {
     Assert-Contains $workflow "github.ref == 'refs/heads/main'" 'main must be the only production release source.'
     Assert-Contains $workflow 'environment: staging' 'staging must use the protected GitHub environment.'
     Assert-Contains $workflow 'environment: production' 'production must use the protected GitHub environment.'
-    Assert-Contains $workflow 'Production content differs from the staging-tested artifact' 'production must reject content that did not pass through staging.'
+    Assert-Contains $workflow 'verify-staging-promotion.ps1' 'production must verify a named staging release before launch.'
     Assert-Contains $workflow 'cancel-in-progress: false' 'deployments must not cancel a running state mutation.'
     Assert-Contains $workflow 'id-token: write' 'release jobs must use short-lived OIDC.'
     Assert-True (-not $workflow.Contains('AWS_ACCESS_KEY_ID')) 'CI must not use fixed AWS credentials.'
@@ -76,6 +96,15 @@ try {
     Assert-Contains $executor '--version-id' 'trusted bootstrap must download immutable S3 object versions.'
     Assert-Contains $executor 'Source digest mismatch.' 'trusted bootstrap must verify the source bundle digest.'
     Assert-Contains $executor 'Release manifest digest mismatch.' 'trusted bootstrap must verify the release manifest digest.'
+    Assert-Contains $executor 'DEPLOYMENT_TFVARS_PATH' 'each executor must receive its declared trusted tfvars path.'
+    Assert-Contains $executor 'DEPLOYMENT_MODE' 'each executor must receive its declared trusted deployment mode.'
+    Assert-Contains $executor 'ReadWriteOnlyItsTerraformState' 'Terraform backend access must be scoped to the executor state object.'
+    Assert-Contains $executor 'LockOnlyItsTerraformLockfile' 'Terraform backend lock access must be scoped to the executor lockfile.'
+    Assert-Contains $executor 'RunOnlyReviewedKubernetesPlatformProviderActions' 'the Kubernetes executor must receive the reviewed provider action set.'
+    Assert-Contains $executor 's3:DeleteObject' 'only the native lockfile policy may release Terraform state locks.'
+    $bootstrap = Get-Content -LiteralPath (Join-Path $repoRoot 'infra/modules/bootstrap/main.tf') -Raw
+    Assert-Contains $bootstrap 'ReadOnlySameRepositoryStagingPromotionEvidence' 'production launchers must read only their own staging promotion evidence.'
+    Assert-Contains $bootstrap 'Every production launcher requires a same-repository staging launcher' 'a production promotion path must not exist without its staging peer.'
     $deploy = Get-Content -LiteralPath (Join-Path $repoRoot 'scripts/deploy.ps1') -Raw
     Assert-Contains $deploy '-out=$plan' 'Terraform must produce a reviewed plan before apply.'
     Assert-Contains $deploy 'apply -input=false $plan' 'Terraform may apply only its reviewed plan file.'

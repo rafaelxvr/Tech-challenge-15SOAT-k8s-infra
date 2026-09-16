@@ -6,6 +6,7 @@ variables {
   account_id                     = "123456789012"
   name                           = "oficina-phase3"
   artifact_bucket_name           = "oficina-phase3-artifacts-example"
+  state_bucket_name              = "oficina-phase3-state-example"
   vpc_cidr                       = "10.42.0.0/16"
   availability_zones             = ["us-east-1a", "us-east-1b"]
   public_subnet_cidrs            = ["10.42.0.0/24", "10.42.1.0/24"]
@@ -19,14 +20,14 @@ variables {
   kubernetes_repository          = "oficina-k8s-infra"
   platform_binding_principal_arn = "arn:aws:iam::123456789012:role/oficina-platform-binding"
   deployments = {
-    k8s_staging          = { repository = "oficina-k8s-infra", environment = "staging", source_prefix = "releases/k8s/staging" }
-    k8s_production       = { repository = "oficina-k8s-infra", environment = "production", source_prefix = "releases/k8s/production" }
-    db_staging           = { repository = "oficina-db-infra", environment = "staging", source_prefix = "releases/db/staging" }
-    db_production        = { repository = "oficina-db-infra", environment = "production", source_prefix = "releases/db/production" }
-    functions_staging    = { repository = "oficina-functions", environment = "staging", source_prefix = "releases/functions/staging" }
-    functions_production = { repository = "oficina-functions", environment = "production", source_prefix = "releases/functions/production" }
-    app_staging          = { repository = "oficina-app", environment = "staging", source_prefix = "releases/app/staging" }
-    app_production       = { repository = "oficina-app", environment = "production", source_prefix = "releases/app/production" }
+    k8s_staging          = { repository = "oficina-k8s-infra", environment = "staging", source_prefix = "releases/k8s/staging", terraform_state_key = "environments/staging.tfstate", deployment_mode = "plan", terraform_variables_path = "/tmp/oficina/k8s_staging.tfvars.json" }
+    k8s_production       = { repository = "oficina-k8s-infra", environment = "production", source_prefix = "releases/k8s/production", terraform_state_key = "environments/production.tfstate", deployment_mode = "plan", terraform_variables_path = "/tmp/oficina/k8s_production.tfvars.json" }
+    db_staging           = { repository = "oficina-db-infra", environment = "staging", source_prefix = "releases/db/staging", terraform_state_key = "db/staging.tfstate", deployment_mode = "plan", terraform_variables_path = "/tmp/oficina/db_staging.tfvars.json" }
+    db_production        = { repository = "oficina-db-infra", environment = "production", source_prefix = "releases/db/production", terraform_state_key = "db/production.tfstate", deployment_mode = "plan", terraform_variables_path = "/tmp/oficina/db_production.tfvars.json" }
+    functions_staging    = { repository = "oficina-functions", environment = "staging", source_prefix = "releases/functions/staging", terraform_state_key = "functions/staging.tfstate", deployment_mode = "plan", terraform_variables_path = "/tmp/oficina/functions_staging.tfvars.json" }
+    functions_production = { repository = "oficina-functions", environment = "production", source_prefix = "releases/functions/production", terraform_state_key = "functions/production.tfstate", deployment_mode = "plan", terraform_variables_path = "/tmp/oficina/functions_production.tfvars.json" }
+    app_staging          = { repository = "oficina-app", environment = "staging", source_prefix = "releases/app/staging", terraform_state_key = "app/staging.tfstate", deployment_mode = "plan", terraform_variables_path = "/tmp/oficina/app_staging.tfvars.json" }
+    app_production       = { repository = "oficina-app", environment = "production", source_prefix = "releases/app/production", terraform_state_key = "app/production.tfstate", deployment_mode = "plan", terraform_variables_path = "/tmp/oficina/app_production.tfvars.json" }
   }
 }
 

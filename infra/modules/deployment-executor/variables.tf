@@ -13,6 +13,10 @@ variable "kubernetes_repository" {
   }
 }
 variable "artifact_bucket_name" { type = string }
+variable "state_bucket_name" {
+  type        = string
+  description = "Existing bootstrap state bucket. Executors receive only their own state and lockfile paths."
+}
 variable "private_subnet_ids" { type = list(string) }
 variable "security_group_ids" { type = list(string) }
 variable "deployer_image_digest" {
@@ -25,16 +29,22 @@ variable "deployer_image_digest" {
 }
 variable "deployments" {
   type = map(object({
-    repository    = string
-    environment   = string
-    source_prefix = string
+    repository               = string
+    environment              = string
+    source_prefix            = string
+    terraform_state_key      = string
+    deployment_mode          = string
+    terraform_variables_path = string
   }))
   description = "Exactly four repositories multiplied by staging and production. Source bundles arrive through S3, never GitHub credentials in CodeBuild."
   validation {
-    condition = length(var.deployments) == 8 && length(distinct([for deployment in values(var.deployments) : deployment.repository])) == 4 && alltrue([
+    condition = length(var.deployments) == 8 && length(distinct([for deployment in values(var.deployments) : deployment.repository])) == 4 && length(distinct([for deployment in values(var.deployments) : deployment.terraform_state_key])) == length(var.deployments) && alltrue([
       for deployment in values(var.deployments) :
       contains(["staging", "production"], deployment.environment) &&
-      can(regex("^[a-z0-9][a-z0-9/_-]*$", deployment.source_prefix))
+      can(regex("^[a-z0-9][a-z0-9/_-]*$", deployment.source_prefix)) &&
+      can(regex("^[a-z0-9][a-z0-9/_-]*\\.tfstate$", deployment.terraform_state_key)) &&
+      contains(["plan", "apply"], deployment.deployment_mode) &&
+      can(regex("^/tmp/oficina/[a-z0-9_-]+\\.tfvars\\.json$", deployment.terraform_variables_path))
       ]) && contains(distinct([for deployment in values(var.deployments) : deployment.repository]), var.kubernetes_repository) && alltrue([
       for repository in distinct([for deployment in values(var.deployments) : deployment.repository]) :
       length([for deployment in values(var.deployments) : deployment.environment if deployment.repository == repository]) == 2 &&

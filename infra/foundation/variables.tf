@@ -20,6 +20,10 @@ variable "name" {
   }
 }
 variable "artifact_bucket_name" { type = string }
+variable "state_bucket_name" {
+  type        = string
+  description = "Reviewed bootstrap state bucket consumed only for scoped executor state/lock access."
+}
 variable "vpc_cidr" { type = string }
 variable "availability_zones" { type = list(string) }
 variable "public_subnet_cidrs" { type = list(string) }
@@ -41,8 +45,11 @@ variable "platform_binding_principal_arn" {
 }
 variable "deployments" {
   type = map(object({
-    repository    = string
-    environment   = string
-    source_prefix = string
+    repository               = string
+    environment              = string
+    source_prefix            = string
+    terraform_state_key      = string
+    deployment_mode          = string
+    terraform_variables_path = string
   }))
 }

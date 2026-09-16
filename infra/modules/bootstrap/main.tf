@@ -3,6 +3,9 @@ locals {
   launcher_subjects = {
     for name, launcher in var.launchers : name => "repo:${launcher.repository}:environment:${launcher.environment}"
   }
+  staging_source_prefixes_by_repository = {
+    for launcher in values(var.launchers) : launcher.repository => launcher.source_prefix if launcher.environment == "staging"
+  }
   launcher_role_arns = toset([for role in aws_iam_role.launcher : role.arn])
   launcher_trust_policies = {
     for name, launcher in var.launchers : name => jsonencode({
@@ -24,7 +27,7 @@ locals {
   launcher_permission_policies = {
     for name, launcher in var.launchers : name => jsonencode({
       Version = "2012-10-17"
-      Statement = [
+      Statement = concat([
         {
           Sid      = "UploadOnlyReviewedSourcePrefix"
           Effect   = "Allow"
@@ -37,7 +40,17 @@ locals {
           Action   = ["codebuild:StartBuild", "codebuild:BatchGetBuilds"]
           Resource = launcher.codebuild_project_arn
         }
-      ]
+        ], launcher.environment == "production" ? [
+        {
+          Sid    = "ReadOnlySameRepositoryStagingPromotionEvidence"
+          Effect = "Allow"
+          Action = ["s3:GetObject", "s3:GetObjectVersion"]
+          Resource = [
+            "${aws_s3_bucket.artifact.arn}/${local.staging_source_prefixes_by_repository[launcher.repository]}/manifests/*",
+            "${aws_s3_bucket.artifact.arn}/${local.staging_source_prefixes_by_repository[launcher.repository]}/promotions/*"
+          ]
+        }
+      ] : [])
     })
   }
   state_access_policies = {
@@ -180,6 +193,16 @@ resource "terraform_data" "role_separation" {
     precondition {
       condition     = length(setintersection(local.launcher_role_arns, var.runtime_role_arns)) == 0
       error_message = "GitHub launcher roles and workload runtime roles must be distinct."
+    }
+  }
+}
+
+resource "terraform_data" "promotion_pairs" {
+  input = local.staging_source_prefixes_by_repository
+  lifecycle {
+    precondition {
+      condition     = alltrue([for launcher in values(var.launchers) : launcher.environment != "production" || contains(keys(local.staging_source_prefixes_by_repository), launcher.repository)])
+      error_message = "Every production launcher requires a same-repository staging launcher before it may read promotion evidence."
     }
   }
 }
