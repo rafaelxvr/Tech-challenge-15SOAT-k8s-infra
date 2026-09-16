@@ -25,4 +25,22 @@ if ($terraform -notmatch '(?s)Sid\s*=\s*"CodeBuildVpcNetworkInterfaces".*?Action
     throw 'The CodeBuild VPC network-interface permissions must be in the common service-role policy with the documented IAM resource scope.'
 }
 
+$requiredPermission = @'
+{
+  Sid = "CodeBuildVpcNetworkInterfacePermission"
+  Effect = "Allow"
+  Action = "ec2:CreateNetworkInterfacePermission"
+  Resource = "arn:aws:ec2:${var.aws_region}:${var.account_id}:network-interface/*"
+  Condition = {
+    StringEquals = { "ec2:AuthorizedService" = "codebuild.amazonaws.com" }
+    ArnEquals = { "ec2:Subnet" = [for subnet in var.private_subnet_ids : "arn:aws:ec2:${var.aws_region}:${var.account_id}:subnet/${subnet}"] }
+  }
+}
+'@
+if (-not ($terraform -replace '\s', '').Contains(($requiredPermission -replace '\s', ''))) {
+    throw 'CodeBuild requires CreateNetworkInterfacePermission limited to configured account/region ENIs, its private subnets, and the CodeBuild authorized service.'
+}
+if ([regex]::Matches($terraform, '"ec2:CreateNetworkInterfacePermission"').Count -ne 1) {
+    throw 'The ENI permission must appear only in its separately scoped statement, never in the Resource=* action list.'
+}
 Write-Output 'deployment executor VPC CodeBuild permission contract: PASS'

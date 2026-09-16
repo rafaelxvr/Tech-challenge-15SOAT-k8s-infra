@@ -59,6 +59,16 @@ locals {
       { Sid = "LockOnlyFoundationAddonsState", Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"], Resource = "arn:aws:s3:::${var.state_bucket_name}/${local.state_key}.tflock" },
       { Sid = "DescribeOnlyPrivateCluster", Effect = "Allow", Action = "eks:DescribeCluster", Resource = var.cluster_arn },
       { Sid = "CodeBuildVpcNetworkInterfaces", Effect = "Allow", Action = local.codebuild_vpc_network_interface_actions, Resource = "*" },
+      {
+        Sid      = "CodeBuildVpcNetworkInterfacePermission"
+        Effect   = "Allow"
+        Action   = "ec2:CreateNetworkInterfacePermission"
+        Resource = "arn:aws:ec2:${var.aws_region}:${var.account_id}:network-interface/*"
+        Condition = {
+          StringEquals = { "ec2:AuthorizedService" = "codebuild.amazonaws.com" }
+          ArnEquals    = { "ec2:Subnet" = [for subnet in var.private_subnet_ids : "arn:aws:ec2:${var.aws_region}:${var.account_id}:subnet/${subnet}"] }
+        }
+      },
       { Sid = "PullOnlyPinnedDeployerImage", Effect = "Allow", Action = ["ecr:BatchCheckLayerAvailability", "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"], Resource = "arn:aws:ecr:${var.aws_region}:${var.account_id}:repository/${split("/", var.deployer_repository_url)[1]}" },
       { Sid = "AuthenticateOnlyToPullDeployerImage", Effect = "Allow", Action = "ecr:GetAuthorizationToken", Resource = "*" },
       { Sid = "CreateOnlyThisBuildLogGroup", Effect = "Allow", Action = "logs:CreateLogGroup", Resource = "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:/aws/codebuild/${local.project_name}" },

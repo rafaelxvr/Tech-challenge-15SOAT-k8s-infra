@@ -4,9 +4,8 @@ locals {
     for key, deployment in var.deployments : key => "${var.name}-${replace(deployment.repository, "/", "-")}-${deployment.environment}-deploy"
   }
   eks_describe_actions = ["eks:DescribeCluster"]
-  # AWS requires these service-role permissions for CodeBuild projects with
-  # vpc_config. EC2 network-interface actions do not support narrower IAM
-  # resource scoping for this CodeBuild lifecycle.
+  # Base actions from AWS's documented CodeBuild VPC lifecycle policy.
+  # CreateNetworkInterfacePermission is granted separately with ENI/subnet/service scope.
   codebuild_vpc_project_actions = [
     "ec2:CreateNetworkInterface",
     "ec2:DescribeDhcpOptions",
@@ -224,12 +223,22 @@ locals {
           Resource = "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:/aws/codebuild/${local.project_names[key]}:log-stream:*"
         },
         # CodeBuild creates and removes VPC network interfaces for each private executor.
-        # These documented EC2 actions do not support narrower resource scoping in IAM.
+        # Preserve the base scope from AWS's documented CodeBuild VPC policy.
         {
           Sid      = "CodeBuildVpcNetworkInterfaces"
           Effect   = "Allow"
           Action   = local.codebuild_vpc_project_actions
           Resource = "*"
+        },
+        {
+          Sid      = "CodeBuildVpcNetworkInterfacePermission"
+          Effect   = "Allow"
+          Action   = "ec2:CreateNetworkInterfacePermission"
+          Resource = "arn:aws:ec2:${var.aws_region}:${var.account_id}:network-interface/*"
+          Condition = {
+            StringEquals = { "ec2:AuthorizedService" = "codebuild.amazonaws.com" }
+            ArnEquals    = { "ec2:Subnet" = [for subnet in var.private_subnet_ids : "arn:aws:ec2:${var.aws_region}:${var.account_id}:subnet/${subnet}"] }
+          }
         },
         {
           Sid      = "PullOnlyPlatformDeployerImage"

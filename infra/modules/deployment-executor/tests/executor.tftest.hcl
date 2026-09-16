@@ -27,6 +27,33 @@ variables {
 
 run "eight_bounded_private_deployers" {
   command = plan
+  override_resource {
+    target          = aws_ecr_repository.deployer
+    override_during = plan
+    values = {
+      arn = "arn:aws:ecr:us-east-1:123456789012:repository/oficina-phase3-deployer"
+    }
+  }
+  assert {
+    condition = alltrue([
+      for policy in values(local.codebuild_policies) : one([
+        for statement in jsondecode(policy).Statement : statement
+        if statement.Sid == "CodeBuildVpcNetworkInterfacePermission"
+        ]) == {
+        Sid      = "CodeBuildVpcNetworkInterfacePermission"
+        Effect   = "Allow"
+        Action   = "ec2:CreateNetworkInterfacePermission"
+        Resource = "arn:aws:ec2:us-east-1:123456789012:network-interface/*"
+        Condition = {
+          StringEquals = { "ec2:AuthorizedService" = "codebuild.amazonaws.com" }
+          ArnEquals = {
+            "ec2:Subnet" = ["arn:aws:ec2:us-east-1:123456789012:subnet/subnet-a", "arn:aws:ec2:us-east-1:123456789012:subnet/subnet-b"]
+          }
+        }
+      }
+    ])
+    error_message = "Every executor must restrict ENI permission to CodeBuild, its configured account/region and both private subnets."
+  }
   assert {
     condition     = length(aws_codebuild_project.deploy) == 8 && alltrue([for project in aws_codebuild_project.deploy : project.concurrent_build_limit == 1 && project.environment[0].compute_type == "BUILD_GENERAL1_SMALL" && project.environment[0].image_pull_credentials_type == "SERVICE_ROLE" && !project.environment[0].privileged_mode && project.source[0].type == "S3"])
     error_message = "The four repositories require exactly eight bounded, S3-sourced non-privileged deployers."
