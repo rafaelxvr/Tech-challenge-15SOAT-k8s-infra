@@ -9,7 +9,11 @@ param(
     [string]$OutputFile,
 
     # Used only by offline contract tests. Normal execution verifies the current caller through STS.
-    [string]$CallerArnForTest
+    [string]$CallerArnForTest,
+
+    [switch]$AllowStudyRoot,
+
+    [string]$StudyRootJustification = ''
 )
 
 Set-StrictMode -Version Latest
@@ -19,6 +23,10 @@ $checker = Join-Path $PSScriptRoot 'check-deployment-inputs.ps1'
 $checkerArguments = @{ InputFile = $InputFile }
 if (-not [string]::IsNullOrWhiteSpace($CallerArnForTest)) {
     $checkerArguments.CallerArnForTest = $CallerArnForTest
+}
+if ($AllowStudyRoot) {
+    $checkerArguments.AllowStudyRoot = $true
+    $checkerArguments.StudyRootJustification = $StudyRootJustification
 }
 & $checker @checkerArguments | Out-Null
 

@@ -18,8 +18,18 @@
     "region": { "const": "us-east-1" },
     "operatorArn": {
       "type": "string",
-      "pattern": "^arn:aws:iam::[0-9]{12}:(user|role)/.+$",
-      "not": { "pattern": ":root$" }
+      "pattern": "^arn:aws:iam::[0-9]{12}:((user|role)/.+|root)$"
+    },
+    "studyRootException": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidenceRecord"],
+      "properties": {
+        "evidenceRecord": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._-]{8,128}\\.json$"
+        }
+      }
     },
     "githubOidcProviderArn": {
       "type": "string",
@@ -55,5 +65,11 @@
         ]
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "operatorArn": { "pattern": ":root$" } } },
+      "then": { "required": ["studyRootException"] }
+    }
+  ]
 }

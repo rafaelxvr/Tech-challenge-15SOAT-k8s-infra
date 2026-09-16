@@ -1,6 +1,6 @@
 # Protected state and OIDC bootstrap
 
-Run these commands only during the approved cloud window, from a dedicated MFA-protected IAM human identity. The input checker calls STS to confirm that identity but does not print credentials or account values. Do not use the AWS root user, fixed GitHub credentials, or `terraform apply` from a pull-request job.
+Run these commands only during the approved cloud window, from a dedicated MFA-protected IAM human identity. The input checker resolves AWS CLI v2 from `OFICINA_AWS_CLI_PATH`, then `PATH`, then `C:\Program Files\Amazon\AWSCLIV2\aws.exe`; it calls STS to confirm the identity but does not print credentials or account values. If none resolve, it stops before invoking a shell command. Do not use the AWS root user, fixed GitHub credentials, or `terraform apply` from a pull-request job.
 
 1. Copy the approved, secret-free deployment-input JSON to a local ignored path and validate it.
 
@@ -8,6 +8,15 @@ Run these commands only during the approved cloud window, from a dedicated MFA-p
    $inputs = 'C:\secure\phase3-deployment-inputs.json'
    .\scripts\check-deployment-inputs.ps1 -InputFile $inputs
    ```
+
+   The checker rejects the AWS root identity by default, including when STS reports root. A narrowly bounded study exception is available only for a staging-only input and only when a reviewer has created a **local, redacted** evidence record beside that input. It never permits production launchers and does not relax the GitHub OIDC subject checks. The exception justification is JSON with a Phase 3 staging scope, an operator-approved purpose that names validation/rehearsal/verification, and a bounded window reference. It must contain no account IDs, ARNs, credentials, tokens, or secrets. The input's `studyRootException.evidenceRecord` must name the sibling record; that record must have `APPROVED_FOR_STUDY_STAGING`, `staging`, a UTC `timestampUtc`, and the SHA-256 fingerprint, scope, and window from the exact justification string.
+
+   ```powershell
+   $studyReason = '{"studyScope":"phase-3-staging-bootstrap-study","operatorApprovedPurpose":"Validate the bounded staging bootstrap rehearsal.","boundedWindowReference":"window-bootstrap-20260916"}'
+   .\scripts\check-deployment-inputs.ps1 -InputFile $inputs -AllowStudyRoot -StudyRootJustification $studyReason
+   ```
+
+   This switch is for the approved study record only. It fails for root without the switch, production or mixed launcher sets, vague or sensitive justifications, missing evidence, or a record whose fingerprint/scope/window does not exactly match. Do not copy the evidence record or justification into Terraform variables, a repository, CI logs, or an issue.
 
 2. Generate a complete local Terraform variables file from the validated inputs. The generated JSON has every variable required by `infra/bootstrap`, including launcher mappings and dedicated state keys; it contains no access keys or secret values.
 
