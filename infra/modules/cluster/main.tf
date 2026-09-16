@@ -112,8 +112,8 @@ resource "terraform_data" "workers_minimal_update" {
   depends_on = [aws_eks_node_group.workers]
 
   provisioner "local-exec" {
-    interpreter = ["pwsh", "-NoLogo", "-NoProfile", "-File"]
-    command     = "${path.module}/scripts/apply-minimal-node-update.ps1 -Region ${var.aws_region} -ClusterName ${aws_eks_cluster.this.name} -NodeGroupReleaseVersionsJson '${self.triggers_replace.node_group_release_versions_json}' -UpdateStrategy ${local.node_update_strategy} -MaxUnavailable 1 -MaxPolls ${local.node_update_max_polls}"
+    interpreter = ["pwsh", "-NoLogo", "-NoProfile", "-File", "${path.module}/scripts/apply-minimal-node-update.ps1"]
+    command     = "-Region ${var.aws_region} -ClusterName ${aws_eks_cluster.this.name} -NodeGroupReleaseVersionsJson '${self.triggers_replace.node_group_release_versions_json}' -UpdateStrategy ${local.node_update_strategy} -MaxUnavailable 1 -MaxPolls ${local.node_update_max_polls}"
   }
 }
 

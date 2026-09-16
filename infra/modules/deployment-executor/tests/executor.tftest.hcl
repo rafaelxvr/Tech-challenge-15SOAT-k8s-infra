@@ -58,6 +58,10 @@ run "eight_bounded_private_deployers" {
     error_message = "Each CodeBuild role must contain only the provider capabilities required by its reviewed Terraform owner."
   }
   assert {
+    condition     = local.codebuild_vpc_project_actions == ["ec2:DescribeSecurityGroups"]
+    error_message = "Every VPC-configured CodeBuild service role must be able to describe its reviewed security groups during project creation."
+  }
+  assert {
     condition = alltrue([
       !strcontains(local.executor_permission_profile_documents["db_staging"], "lambda:"),
       !strcontains(local.executor_permission_profile_documents["db_production"], "eks:"),
