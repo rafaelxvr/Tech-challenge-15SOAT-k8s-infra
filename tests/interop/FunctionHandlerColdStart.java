@@ -21,6 +21,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 /** Starts one real zero-argument FUN handler through a loopback-only Secrets Manager mock. */
@@ -87,7 +88,7 @@ public final class FunctionHandlerColdStart {
         private final ServerSocket server;
         private final Thread listener;
         private final Map<String, String> responses;
-        private final Set<String> requested = ConcurrentHashMap.newKeySet();
+        private final Map<String, AtomicInteger> requestCounts = new ConcurrentHashMap<>();
         private final String certificatePem;
         private final AtomicReference<Throwable> failure = new AtomicReference<>();
 
@@ -121,7 +122,7 @@ public final class FunctionHandlerColdStart {
                 String arn = request.get("SecretId");
                 String secret = responses.get(arn);
                 if (secret == null) throw new IllegalArgumentException("Unexpected secret ARN");
-                requested.add(arn);
+                requestCounts.computeIfAbsent(arn, ignored -> new AtomicInteger()).incrementAndGet();
                 byte[] body = JSON.writeValueAsBytes(Map.of("ARN", arn, "Name", "local-i5-cold-start", "VersionId", UUID.randomUUID().toString(), "SecretString", secret));
                 writeResponse(socket, 200, body);
             } catch (Exception exception) {
@@ -191,12 +192,13 @@ public final class FunctionHandlerColdStart {
         }
         void assertExpectedRequests() {
             assertNoFailure();
-            if (!requested.equals(responses.keySet())) throw new IllegalStateException("Resolver requested ARNs outside the handler contract");
+            if (!requestCounts.keySet().equals(responses.keySet()) || requestCounts.values().stream().anyMatch(count -> count.get() != 1))
+                throw new IllegalStateException("Resolver must request every handler ARN exactly once, with no duplicates");
         }
         void assertNoFailure() {
             if (failure.get() != null) throw new IllegalStateException("Loopback Secrets Manager mock failed", failure.get());
         }
-        int requestedCount() { return requested.size(); }
+        int requestedCount() { return requestCounts.values().stream().mapToInt(AtomicInteger::get).sum(); }
         void assertCaMaterialized() throws IOException {
             if (!plan.expectsCa()) return;
             Path path = Path.of(CA_PATH);
