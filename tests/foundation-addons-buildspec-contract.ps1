@@ -38,46 +38,113 @@ locals {
             throw "Buildspec Commands[$index] contains a literal doubled-dollar command substitution; Bash would expand its PID."
         }
     }
-    if ($commands.Count -ne 17 -or -not $commands[2].Contains('Missing reviewed addon input: ${variable}')) {
-        throw 'The rendered input-validation command or command sequence changed unexpectedly.'
+    if ($commands.Count -ne 1 -or -not $commands[0].Contains('Missing reviewed addon input: ${variable}')) {
+        throw 'The workdir, downloads, verification, Terraform and EXIT cleanup must share one CodeBuild command shell.'
     }
     $gitBash = 'C:/Program Files/Git/bin/bash.exe'
     if (-not (Test-Path -LiteralPath $gitBash -PathType Leaf)) { throw 'Git Bash is required for the offline buildspec shell fixture.' }
-    $bundle = Join-Path $temp 'input-bundle.zip'
-    $manifest = Join-Path $temp 'input-manifest.json'
-    'fixture bundle' | Set-Content -LiteralPath $bundle -NoNewline
-    '{"fixture":true}' | Set-Content -LiteralPath $manifest -NoNewline
-    $bundleSha = (Get-FileHash -LiteralPath $bundle -Algorithm SHA256).Hash.ToLowerInvariant()
-    $manifestSha = (Get-FileHash -LiteralPath $manifest -Algorithm SHA256).Hash.ToLowerInvariant()
-    # Execute the actual rendered assignment and both checksum commands. Leave
-    # cleanup to this harness's bounded finally block, not the deployment trap.
-    $assignment = ($commands[3] -split ';', 2)[0]
-    $runner = Join-Path $temp 'command-substitutions.sh'
-    $shell = @(
-        '#!/usr/bin/env bash',
-        'set -euo pipefail',
-        'fixture_root="$(cygpath -u "$1")"',
-        'export TMPDIR="$fixture_root"',
-        'ADDONS_EXPECTED_SHA256="$2"',
-        'ADDONS_EXPECTED_MANIFEST_SHA256="$3"',
-        $assignment,
-        'test -d "$workdir"',
-        'case "$workdir" in "$fixture_root/"*) ;; *) exit 90 ;; esac',
-        'cp "$fixture_root/input-bundle.zip" "$workdir/bundle.zip"',
-        'cp "$fixture_root/input-manifest.json" "$workdir/manifest.json"',
-        $commands[5],
-        $commands[7]
-    ) -join "`n"
-    ($shell -replace "`r", '') | Set-Content -LiteralPath $runner -NoNewline
+    # Execute the whole rendered command, including its EXIT trap. Cloud and
+    # archive/Terraform operations are stubs; hashes and manifest checks are real.
+    $harness = @'
+#!/usr/bin/env bash
+set -euo pipefail
+fixture_root="$(cygpath -u "$1")"
+export TMPDIR="$fixture_root"
+export ADDONS_EXPECTED_SHA256="$2" ADDONS_EXPECTED_MANIFEST_SHA256="$3"
+mode="$4"
+real_pwsh="$(cygpath -u "$5")"
+export ADDONS_SOURCE_BUCKET=fixture ADDONS_SOURCE_KEY=bundle.zip ADDONS_SOURCE_VERSION_ID=bundle-v
+export ADDONS_MANIFEST_KEY=manifest.json ADDONS_MANIFEST_VERSION_ID=manifest-v
+export ADDONS_SOURCE_COMMIT=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+aws() {
+  test -d "$workdir"
+  local key destination="${!#}"
+  while (($#)); do
+    if [[ "$1" == --key ]]; then key="$2"; break; fi
+    shift
+  done
+  printf 'download:%s\n' "$key" >> "$fixture_root/trace"
+  cp "$fixture_root/input-$key" "$destination"
+}
+pwsh() {
+  printf 'manifest\n' >> "$fixture_root/trace"
+  WORKDIR="$(cygpath -w "$workdir")" command "$real_pwsh" "$@"
+}
+unzip() {
+  test -d "$workdir"
+  printf 'unzip\n' >> "$fixture_root/trace"
+  mkdir -p "$workdir/release/infra/foundation-addons"
+  touch "$workdir/release/infra/foundation-addons/main.tf"
+}
+terraform() {
+  test -d "$workdir"
+  test -f foundation-addons.auto.tfvars.json
+  printf 'terraform:%s\n' "$1" >> "$fixture_root/trace"
+  cp foundation-addons.auto.tfvars.json "$fixture_root/generated-tfvars.json"
+  if [[ "$1" == plan ]]; then touch foundation-addons.tfplan; fi
+  if [[ "$1" == apply ]]; then
+    test -f foundation-addons.tfplan
+    if [[ "$mode" == apply-failure ]]; then return 52; fi
+  fi
+}
+rm() {
+  # The real deployment trap is exercised only within a resolved fixture child.
+  test "$#" -eq 2 && test "$1" = -rf || return 90
+  local target root
+  target="$(realpath -m "$2")"
+  root="$(realpath -m "$fixture_root")"
+  test "$(dirname "$target")" = "$root" || return 91
+  case "$(basename "$target")" in tmp.*) ;; *) return 92 ;; esac
+  test -d "$target" || return 93
+  printf 'cleanup\n' >> "$fixture_root/trace"
+  command rm -rf -- "$target"
+}
+'@
+    $runner = Join-Path $temp 'build-lifecycle.sh'
+    (($harness + "`n" + $commands[0]) -replace "`r", '') | Set-Content -LiteralPath $runner -NoNewline
     & $gitBash -n $runner
-    if ($LASTEXITCODE -ne 0) { throw 'The rendered command substitutions must be valid Bash.' }
-    & $gitBash $runner $temp $bundleSha $manifestSha
-    if ($LASTEXITCODE -ne 0) { throw 'Rendered commands must create a real temporary directory and accept matching fixture hashes.' }
-    & $gitBash $runner $temp ('0' * 64) $manifestSha
-    if ($LASTEXITCODE -eq 0) { throw 'The rendered source checksum must reject a mismatched hash.' }
-    & $gitBash $runner $temp $bundleSha ('0' * 64)
-    if ($LASTEXITCODE -eq 0) { throw 'The rendered manifest checksum must reject a mismatched hash.' }
-    Write-Output "Foundation-addons rendered buildspec contract: PASS ($($commands.Count) string commands; workdir and both checksum substitutions executed)."
+    if ($LASTEXITCODE -ne 0) { throw 'The rendered build block must be valid Bash, including its tfvars heredoc.' }
+    $realPwsh = (Get-Command pwsh -CommandType Application).Source
+    $allStages = @('download:bundle.zip', 'download:manifest.json', 'manifest', 'unzip', 'terraform:init', 'terraform:validate', 'terraform:plan', 'terraform:apply', 'cleanup')
+    foreach ($scenario in @('success', 'bundle-mismatch', 'manifest-mismatch', 'source-mismatch', 'apply-failure')) {
+        $fixture = Join-Path $temp $scenario
+        New-Item -ItemType Directory -Path $fixture | Out-Null
+        $bundle = Join-Path $fixture 'input-bundle.zip'
+        $manifest = Join-Path $fixture 'input-manifest.json'
+        'fixture bundle' | Set-Content -LiteralPath $bundle -NoNewline
+        $bundleSha = (Get-FileHash -LiteralPath $bundle -Algorithm SHA256).Hash.ToLowerInvariant()
+        $sourceCommit = if ($scenario -eq 'source-mismatch') { 'b' * 40 } else { 'a' * 40 }
+        @{ schemaVersion = 1; sourceCommit = $sourceCommit; artifactSha256 = $bundleSha } |
+            ConvertTo-Json -Compress | Set-Content -LiteralPath $manifest -NoNewline
+        $manifestSha = (Get-FileHash -LiteralPath $manifest -Algorithm SHA256).Hash.ToLowerInvariant()
+        $expectedBundle = if ($scenario -eq 'bundle-mismatch') { '0' * 64 } else { $bundleSha }
+        $expectedManifest = if ($scenario -eq 'manifest-mismatch') { '0' * 64 } else { $manifestSha }
+        $runOutput = & $gitBash $runner $fixture $expectedBundle $expectedManifest $scenario $realPwsh 2>&1
+        $runExit = $LASTEXITCODE
+        if (($scenario -eq 'success' -and $runExit -ne 0) -or ($scenario -ne 'success' -and $runExit -eq 0)) {
+            throw "Unexpected lifecycle result for ${scenario}: exit $runExit; $($runOutput -join [Environment]::NewLine)"
+        }
+        $expectedStages = switch ($scenario) {
+            'bundle-mismatch' { @('download:bundle.zip', 'cleanup') }
+            'manifest-mismatch' { @('download:bundle.zip', 'download:manifest.json', 'cleanup') }
+            'source-mismatch' { @('download:bundle.zip', 'download:manifest.json', 'manifest', 'cleanup') }
+            default { $allStages }
+        }
+        $trace = @(Get-Content -LiteralPath (Join-Path $fixture 'trace'))
+        if (($trace -join ',') -cne ($expectedStages -join ',')) {
+            throw "Workdir lifecycle must stop at the failing stage and clean up last for ${scenario}: $($trace -join ',')"
+        }
+        if (@(Get-ChildItem -LiteralPath $fixture -Directory -Filter 'tmp.*').Count -ne 0) {
+            throw "The EXIT trap must clean up the workdir for $scenario."
+        }
+        if ($scenario -eq 'success') {
+            $tfvars = Get-Content -LiteralPath (Join-Path $fixture 'generated-tfvars.json') -Raw | ConvertFrom-Json
+            if ($tfvars.cluster_name -cne 'oficina-test' -or $tfvars.aws_region -cne 'us-east-1') {
+                throw 'The rendered tfvars heredoc must preserve the configured values.'
+            }
+        }
+    }
+    Write-Output 'Foundation-addons rendered buildspec contract: PASS (one shell; five lifecycle/hash/manifest scenarios; cleanup after final use and failures).'
     exit 0
 }
 finally {
