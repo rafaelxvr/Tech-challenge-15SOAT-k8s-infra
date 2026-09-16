@@ -28,6 +28,25 @@ variables {
 run "eight_bounded_private_deployers" {
   command = plan
   assert {
+    condition = alltrue([for key, project in aws_codebuild_project.deploy :
+      one([for statement in jsondecode(local.codebuild_policies[key]).Statement : statement if statement.Sid == "CreateOnlyThisBuildLogGroup"]) == {
+        Sid      = "CreateOnlyThisBuildLogGroup"
+        Effect   = "Allow"
+        Action   = "logs:CreateLogGroup"
+        Resource = "arn:aws:logs:us-east-1:123456789012:log-group:${project.logs_config[0].cloudwatch_logs[0].group_name}"
+      } &&
+      one([for statement in jsondecode(local.codebuild_policies[key]).Statement : statement if statement.Sid == "WriteOnlyThisBuildLogGroup"]) == {
+        Sid      = "WriteOnlyThisBuildLogGroup"
+        Effect   = "Allow"
+        Action   = ["logs:CreateLogStream", "logs:PutLogEvents"]
+        Resource = "arn:aws:logs:us-east-1:123456789012:log-group:${project.logs_config[0].cloudwatch_logs[0].group_name}:log-stream:*"
+      } &&
+      project.logs_config[0].cloudwatch_logs[0].group_name == "/aws/codebuild/${project.name}" &&
+      !strcontains(project.logs_config[0].cloudwatch_logs[0].group_name, "*")
+    ])
+    error_message = "Every deployment executor may create only its declared exact account/region log group, and may create streams/write events only inside that same group."
+  }
+  assert {
     condition = alltrue([for environment in ["staging", "production"] :
       aws_codebuild_project.deploy["db_${environment}"].source[0].location == "${var.artifact_bucket_name}/releases/database/${environment}/bundle.zip" &&
       strcontains(local.rendered_deployment_buildspecs["db_${environment}"], "reviewed_backend_key=\"database/${environment}.tfstate\"") &&

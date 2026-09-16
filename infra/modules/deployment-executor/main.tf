@@ -316,6 +316,13 @@ locals {
           Resource = "arn:aws:s3:::${var.artifact_bucket_name}/${deployment.source_prefix}/*"
         },
         {
+          # CreateLogGroup authorizes the group ARN itself, without a stream suffix.
+          Sid      = "CreateOnlyThisBuildLogGroup"
+          Effect   = "Allow"
+          Action   = "logs:CreateLogGroup"
+          Resource = "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:/aws/codebuild/${local.project_names[key]}"
+        },
+        {
           Sid      = "WriteOnlyThisBuildLogGroup"
           Effect   = "Allow"
           Action   = ["logs:CreateLogStream", "logs:PutLogEvents"]

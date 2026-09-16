@@ -20,6 +20,8 @@ The DB profile's sole `Resource: "*"` statement contains EC2 DescribeVpcs, Descr
 
 The common CodeBuild VPC lifecycle statement and ECR GetAuthorizationToken remain unchanged. Their existing AWS-required `Resource: "*"` scopes support execution rather than granting DB ownership. The separate ENI permission remains CodeBuild-service and private-subnet restricted.
 
+Every normal deployment executor also receives `logs:CreateLogGroup` on its exact declared `/aws/codebuild/{project-name}` group ARN in the configured account/region, with no wildcard or stream suffix. This lets CodeBuild initialize logging before source download, including the database staging executor. The existing CreateLogStream/PutLogEvents grant remains limited to streams inside that same group. No log-group deletion, retention change, or additional group creation is added. The dedicated foundation-addons executor policy is unchanged. The mocked eight-executor test asserts these exact group/stream boundaries for every repository/environment pair; it failed before this permission was added.
+
 ## Integration prerequisites and limits
 
 RDS generates the opaque master-secret name before its DB association tag necessarily exists. The secret permission therefore requires `aws:CalledVia = rds.amazonaws.com`; exact named RDS permissions constrain the initiating operation. If request/resource `aws:rds:primaryDBInstanceArn` tags are present, they must match the executor's exact DB ARN. `StringEqualsIfExists` deliberately does not assume RDS copies application environment tags during initial secret creation. Direct secret API calls are not authorized by this statement.
