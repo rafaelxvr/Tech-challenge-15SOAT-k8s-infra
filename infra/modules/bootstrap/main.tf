@@ -39,6 +39,15 @@ locals {
           Effect   = "Allow"
           Action   = ["codebuild:StartBuild", "codebuild:BatchGetBuilds"]
           Resource = launcher.codebuild_project_arn
+        },
+        {
+          Sid      = "DenyBuildspecOverride"
+          Effect   = "Deny"
+          Action   = "codebuild:StartBuild"
+          Resource = launcher.codebuild_project_arn
+          # The Null=false condition is AWS's documented way to deny any
+          # StartBuild request that supplies buildspecOverride.
+          Condition = { Null = { "codebuild:source.buildspec" = "false" } }
         }
         ], launcher.environment == "production" ? [
         {

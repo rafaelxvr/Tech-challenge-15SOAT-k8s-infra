@@ -58,6 +58,25 @@ try {
     [ordered]@{ windowStartUtc = $now.AddMinutes(-2).ToString('o'); windowEndUtc = $now.AddMinutes(30).ToString('o'); recordedAtUtc = $now.ToString('o'); accountEvidenceReference = 'reviewed-study-account-evidence'; projectAllowanceUsd = 80; reserveUsd = 20; currentEstimatedSpendUsd = 0 } | ConvertTo-Json | Set-Content -LiteralPath $openEvidence -NoNewline
     & (Join-Path $repoRoot 'scripts/start-deploy.ps1') -Environment staging -SourceZip $bundle -ExpectedSha256 $sourceSha -ReleaseManifest $manifest -ExpectedManifestSha256 $manifestSha -Bucket 'oficina-artifacts-example' -SourcePrefix 'releases/k8s/staging' -ProjectName 'oficina-phase3-oficina-k8s-infra-staging-deploy' -DeployerImageDigest ('b' * 64) -SourceCommit ('a' * 40) -CloudWindowEvidenceFile $openEvidence -TerraformVariablesFile $tfvars -DryRun | Out-Null
     & (Join-Path $repoRoot 'scripts/deploy.ps1') -Environment staging -ReleaseManifest $manifest -ExpectedSourceSha256 $sourceSha -ExpectedManifestSha256 $manifestSha -SourceCommit ('a' * 40) -ExpectedDeployerImageDigest ('sha256:' + ('b' * 64)) -TerraformVariablesFile $tfvars -TerraformBackendBucket 'oficina-state-example' -TerraformBackendKey 'environments/staging.tfstate' -TerraformBackendLockKey 'environments/staging.tfstate.tflock' -TerraformBackendRegion 'us-east-1' -DryRun | Out-Null
+    $backendOverrideNames = @('TERRAFORM_BACKEND_BUCKET', 'TERRAFORM_BACKEND_KEY', 'TERRAFORM_BACKEND_LOCK_KEY', 'TERRAFORM_BACKEND_REGION')
+    $backendOverrideOriginal = @{}
+    foreach ($name in $backendOverrideNames) { $backendOverrideOriginal[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
+    try {
+        # This simulates StartBuild environmentVariablesOverride values. The
+        # bootstrap provides explicit reviewed arguments, so these values never
+        # select the backend that deploy.ps1 validates before Terraform init.
+        $env:TERRAFORM_BACKEND_BUCKET = 'attacker-state-example'
+        $env:TERRAFORM_BACKEND_KEY = 'environments/production.tfstate'
+        $env:TERRAFORM_BACKEND_LOCK_KEY = 'environments/production.tfstate.tflock'
+        $env:TERRAFORM_BACKEND_REGION = 'eu-west-1'
+        & (Join-Path $repoRoot 'scripts/deploy.ps1') -Environment staging -ReleaseManifest $manifest -ExpectedSourceSha256 $sourceSha -ExpectedManifestSha256 $manifestSha -SourceCommit ('a' * 40) -ExpectedDeployerImageDigest ('sha256:' + ('b' * 64)) -TerraformVariablesFile $tfvars -TerraformBackendBucket 'oficina-state-example' -TerraformBackendKey 'environments/staging.tfstate' -TerraformBackendLockKey 'environments/staging.tfstate.tflock' -TerraformBackendRegion 'us-east-1' -DryRun | Out-Null
+    }
+    finally {
+        foreach ($name in $backendOverrideNames) {
+            if ($null -eq $backendOverrideOriginal[$name]) { Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue }
+            else { Set-Item -LiteralPath "Env:$name" -Value $backendOverrideOriginal[$name] }
+        }
+    }
     Assert-Throws { & (Join-Path $repoRoot 'scripts/deploy.ps1') -Environment staging -ReleaseManifest $manifest -ExpectedSourceSha256 $sourceSha -ExpectedManifestSha256 $manifestSha -SourceCommit ('a' * 40) -ExpectedDeployerImageDigest ('sha256:' + ('b' * 64)) -TerraformVariablesFile $tfvars -TerraformBackendBucket 'oficina-state-example' -TerraformBackendKey 'environments/production.tfstate' -TerraformBackendLockKey 'environments/production.tfstate.tflock' -TerraformBackendRegion 'us-east-1' -DryRun } 'a staging executor must reject the production state key before Terraform initialization.'
     Assert-Throws { & (Join-Path $repoRoot 'scripts/deploy.ps1') -Environment staging -ReleaseManifest $manifest -ExpectedSourceSha256 $sourceSha -ExpectedManifestSha256 $manifestSha -SourceCommit ('a' * 40) -ExpectedDeployerImageDigest ('sha256:' + ('b' * 64)) -TerraformVariablesFile $tfvars -TerraformBackendBucket 'oficina-state-example' -TerraformBackendKey 'environments/staging.tfstate' -TerraformBackendLockKey 'environments/production.tfstate.tflock' -TerraformBackendRegion 'us-east-1' -DryRun } 'an executor must reject a lock context outside its reviewed state key.'
     Assert-Throws { & (Join-Path $repoRoot 'scripts/start-deploy.ps1') -Environment staging -SourceZip $bundle -ExpectedSha256 $sourceSha -ReleaseManifest $manifest -ExpectedManifestSha256 $manifestSha -Bucket 'oficina-artifacts-example' -SourcePrefix 'releases/k8s/staging' -ProjectName 'unreviewed-staging-deploy' -DeployerImageDigest ('b' * 64) -SourceCommit ('a' * 40) -CloudWindowEvidenceFile $openEvidence -TerraformVariablesFile $tfvars -DryRun } 'an unreviewed CodeBuild project must be rejected before launch.'
@@ -107,7 +126,7 @@ try {
     Assert-True (-not $workflow.Contains('echo $CLOUD_WINDOW_EVIDENCE_JSON')) 'CI must not print cloud-window evidence.'
 
     $executor = Get-Content -LiteralPath (Join-Path $repoRoot 'infra/modules/deployment-executor/main.tf') -Raw
-    Assert-Contains $executor 'buildspec = local.inline_deployment_buildspec' 'CodeBuild must use the Terraform-owned bootstrap buildspec.'
+    Assert-Contains $executor 'inline_deployment_buildspec_template' 'CodeBuild must use the Terraform-owned bootstrap template.'
     Assert-Contains $executor '--version-id' 'trusted bootstrap must download immutable S3 object versions.'
     Assert-Contains $executor 'Source digest mismatch.' 'trusted bootstrap must verify the source bundle digest.'
     Assert-Contains $executor 'Release manifest digest mismatch.' 'trusted bootstrap must verify the release manifest digest.'
@@ -116,6 +135,10 @@ try {
     Assert-Contains $executor 'TERRAFORM_BACKEND_BUCKET' 'each executor must receive its trusted Terraform backend bucket.'
     Assert-Contains $executor 'TERRAFORM_BACKEND_KEY' 'each executor must receive its exact trusted Terraform backend key.'
     Assert-Contains $executor 'TERRAFORM_BACKEND_LOCK_KEY' 'each executor must receive the lock context derived from its backend key.'
+    Assert-Contains $executor 'reviewed_backend_key' 'the Terraform-owned bootstrap must use a literal reviewed backend key.'
+    Assert-Contains $executor 'StartBuild environmentVariablesOverride cannot alter these literals.' 'the backend must be outside StartBuild environment overrides.'
+    Assert-True (-not $executor.Contains('$${TERRAFORM_BACKEND_KEY}')) 'the bootstrap must never read an overrideable Terraform backend key.'
+    Assert-True (-not $executor.Contains('name  = "TERRAFORM_BACKEND_KEY"')) 'CodeBuild must not declare an overrideable backend-key environment variable.'
     Assert-Contains $executor 'ReadWriteOnlyItsTerraformState' 'Terraform backend access must be scoped to the executor state object.'
     Assert-Contains $executor 'LockOnlyItsTerraformLockfile' 'Terraform backend lock access must be scoped to the executor lockfile.'
     Assert-Contains $executor 'RunOnlyReviewedKubernetesPlatformProviderActions' 'the Kubernetes executor must receive the reviewed provider action set.'
@@ -123,6 +146,8 @@ try {
     $bootstrap = Get-Content -LiteralPath (Join-Path $repoRoot 'infra/modules/bootstrap/main.tf') -Raw
     Assert-Contains $bootstrap 'ReadOnlySameRepositoryStagingPromotionEvidence' 'production launchers must read only their own staging promotion evidence.'
     Assert-Contains $bootstrap 'Every production launcher requires a same-repository staging launcher' 'a production promotion path must not exist without its staging peer.'
+    Assert-Contains $bootstrap 'DenyBuildspecOverride' 'the launcher must deny replacing the Terraform-owned bootstrap at StartBuild.'
+    Assert-Contains $bootstrap 'codebuild:source.buildspec' 'the launcher must use the CodeBuild buildspec override condition key.'
     $deploy = Get-Content -LiteralPath (Join-Path $repoRoot 'scripts/deploy.ps1') -Raw
     Assert-Contains $deploy '-out=$plan' 'Terraform must produce a reviewed plan before apply.'
     Assert-Contains $deploy 'apply -input=false $plan' 'Terraform may apply only its reviewed plan file.'

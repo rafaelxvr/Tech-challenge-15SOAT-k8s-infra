@@ -63,6 +63,11 @@ run "trust_subjects_are_environment_scoped" {
     condition     = can(regex("sts.amazonaws.com", output.launcher_trust_policies["k8s_production"]))
     error_message = "GitHub OIDC trust must require sts.amazonaws.com audience."
   }
+
+  assert {
+    condition     = can(regex("DenyBuildspecOverride", local.launcher_permission_policies["k8s_staging"])) && can(regex("codebuild:source.buildspec", local.launcher_permission_policies["k8s_staging"]))
+    error_message = "Launchers must deny StartBuild buildspecOverride so Terraform-owned bootstrap literals cannot be replaced."
+  }
 }
 
 run "rejects_wrong_branch_for_environment" {

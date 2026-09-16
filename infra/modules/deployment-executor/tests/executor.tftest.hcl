@@ -48,12 +48,19 @@ run "eight_bounded_private_deployers" {
     condition = alltrue([for key, project in aws_codebuild_project.deploy :
       contains([for variable in project.environment[0].environment_variable : variable.name], "DEPLOYMENT_TFVARS_PATH") &&
       contains([for variable in project.environment[0].environment_variable : variable.name], "DEPLOYMENT_MODE") &&
-      one([for variable in project.environment[0].environment_variable : variable.value if variable.name == "TERRAFORM_BACKEND_BUCKET"]) == var.state_bucket_name &&
-      one([for variable in project.environment[0].environment_variable : variable.value if variable.name == "TERRAFORM_BACKEND_KEY"]) == var.deployments[key].terraform_state_key &&
-      one([for variable in project.environment[0].environment_variable : variable.value if variable.name == "TERRAFORM_BACKEND_LOCK_KEY"]) == "${var.deployments[key].terraform_state_key}.tflock" &&
-      one([for variable in project.environment[0].environment_variable : variable.value if variable.name == "TERRAFORM_BACKEND_REGION"]) == var.aws_region
+      !contains([for variable in project.environment[0].environment_variable : variable.name], "TERRAFORM_BACKEND_BUCKET") &&
+      !contains([for variable in project.environment[0].environment_variable : variable.name], "TERRAFORM_BACKEND_KEY") &&
+      !contains([for variable in project.environment[0].environment_variable : variable.name], "TERRAFORM_BACKEND_LOCK_KEY") &&
+      !contains([for variable in project.environment[0].environment_variable : variable.name], "TERRAFORM_BACKEND_REGION") &&
+      strcontains(project.source[0].buildspec, "reviewed_environment=\"${var.deployments[key].environment}\"") &&
+      strcontains(project.source[0].buildspec, "reviewed_backend_bucket=\"${var.state_bucket_name}\"") &&
+      strcontains(project.source[0].buildspec, "reviewed_backend_key=\"${var.deployments[key].terraform_state_key}\"") &&
+      strcontains(project.source[0].buildspec, "reviewed_backend_lock_key=\"${var.deployments[key].terraform_state_key}.tflock\"") &&
+      strcontains(project.source[0].buildspec, "reviewed_backend_region=\"${var.aws_region}\"") &&
+      strcontains(project.source[0].buildspec, "Deployment environment override does not match this reviewed executor.") &&
+      !strcontains(project.source[0].buildspec, "$${TERRAFORM_BACKEND_KEY}")
     ])
-    error_message = "Every executor must declare its trusted deployment inputs and exact Terraform state backend in project configuration."
+    error_message = "Every executor must render its exact Terraform state backend into the Terraform-owned bootstrap, outside StartBuild overrides."
   }
   assert {
     condition = alltrue([

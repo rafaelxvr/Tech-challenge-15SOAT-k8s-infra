@@ -119,14 +119,19 @@ locals {
   # The executor's buildspec is Terraform-owned. Nothing from the archive is
   # executed until this bootstrap has re-downloaded the exact object version
   # and verified both the source and release-manifest digests.
-  inline_deployment_buildspec = <<-YAML
+  inline_deployment_buildspec_template = <<-YAML
     version: 0.2
     phases:
       build:
         commands:
           - |
             set -euo pipefail
-            required=(DEPLOY_ENVIRONMENT SOURCE_BUCKET SOURCE_KEY SOURCE_VERSION_ID EXPECTED_SHA256 RELEASE_MANIFEST_KEY RELEASE_MANIFEST_VERSION_ID EXPECTED_MANIFEST_SHA256 SOURCE_COMMIT DEPLOYER_IMAGE_DIGEST DEPLOYMENT_TFVARS_PATH DEPLOYMENT_MODE TERRAFORM_BACKEND_BUCKET TERRAFORM_BACKEND_KEY TERRAFORM_BACKEND_LOCK_KEY TERRAFORM_BACKEND_REGION)
+            reviewed_environment="__DEPLOYMENT_ENVIRONMENT__"
+            reviewed_backend_bucket="__TERRAFORM_BACKEND_BUCKET__"
+            reviewed_backend_key="__TERRAFORM_BACKEND_KEY__"
+            reviewed_backend_lock_key="__TERRAFORM_BACKEND_LOCK_KEY__"
+            reviewed_backend_region="__TERRAFORM_BACKEND_REGION__"
+            required=(DEPLOY_ENVIRONMENT SOURCE_BUCKET SOURCE_KEY SOURCE_VERSION_ID EXPECTED_SHA256 RELEASE_MANIFEST_KEY RELEASE_MANIFEST_VERSION_ID EXPECTED_MANIFEST_SHA256 SOURCE_COMMIT DEPLOYER_IMAGE_DIGEST DEPLOYMENT_TFVARS_PATH DEPLOYMENT_MODE)
             for variable in "$${required[@]}"; do
               if [ -z "$${!variable:-}" ]; then
                 echo "Required deployment input is missing: $${variable}"
@@ -137,7 +142,11 @@ locals {
               echo 'DEPLOYMENT_MODE must be plan or apply.'
               exit 1
             fi
-            if [ "$${TERRAFORM_BACKEND_LOCK_KEY}" != "$${TERRAFORM_BACKEND_KEY}.tflock" ]; then
+            if [ "$${DEPLOY_ENVIRONMENT}" != "$${reviewed_environment}" ]; then
+              echo 'Deployment environment override does not match this reviewed executor.'
+              exit 1
+            fi
+            if [ "$${reviewed_backend_lock_key}" != "$${reviewed_backend_key}.tflock" ]; then
               echo 'Terraform backend lock key is not derived from the reviewed state key.'
               exit 1
             fi
@@ -167,7 +176,7 @@ locals {
             unzip -q "$${workdir}/bundle.zip" -d "$${workdir}/release"
             apply_switch=()
             if [ "$${DEPLOYMENT_MODE}" = "apply" ]; then apply_switch=(-ApplyReviewedPlan); fi
-            pwsh -NoLogo -NoProfile -File "$${workdir}/release/scripts/deploy.ps1" -Environment "$${DEPLOY_ENVIRONMENT}" -ReleaseManifest "$${workdir}/release-manifest.json" -ExpectedSourceSha256 "$${EXPECTED_SHA256}" -ExpectedManifestSha256 "$${EXPECTED_MANIFEST_SHA256}" -SourceCommit "$${SOURCE_COMMIT}" -ExpectedDeployerImageDigest "$${DEPLOYER_IMAGE_DIGEST}" -TerraformVariablesFile "$${DEPLOYMENT_TFVARS_PATH}" -TerraformBackendBucket "$${TERRAFORM_BACKEND_BUCKET}" -TerraformBackendKey "$${TERRAFORM_BACKEND_KEY}" -TerraformBackendLockKey "$${TERRAFORM_BACKEND_LOCK_KEY}" -TerraformBackendRegion "$${TERRAFORM_BACKEND_REGION}" "$${apply_switch[@]}"
+            pwsh -NoLogo -NoProfile -File "$${workdir}/release/scripts/deploy.ps1" -Environment "$${reviewed_environment}" -ReleaseManifest "$${workdir}/release-manifest.json" -ExpectedSourceSha256 "$${EXPECTED_SHA256}" -ExpectedManifestSha256 "$${EXPECTED_MANIFEST_SHA256}" -SourceCommit "$${SOURCE_COMMIT}" -ExpectedDeployerImageDigest "$${DEPLOYER_IMAGE_DIGEST}" -TerraformVariablesFile "$${DEPLOYMENT_TFVARS_PATH}" -TerraformBackendBucket "$${reviewed_backend_bucket}" -TerraformBackendKey "$${reviewed_backend_key}" -TerraformBackendLockKey "$${reviewed_backend_lock_key}" -TerraformBackendRegion "$${reviewed_backend_region}" "$${apply_switch[@]}"
   YAML
 }
 
@@ -214,9 +223,17 @@ resource "aws_codebuild_project" "deploy" {
 
   artifacts { type = "NO_ARTIFACTS" }
   source {
-    type      = "S3"
-    location  = "${var.artifact_bucket_name}/${each.value.source_prefix}/bundle.zip"
-    buildspec = local.inline_deployment_buildspec
+    type     = "S3"
+    location = "${var.artifact_bucket_name}/${each.value.source_prefix}/bundle.zip"
+    # State selection is rendered into this Terraform-owned buildspec. A
+    # StartBuild environmentVariablesOverride cannot alter these literals.
+    buildspec = replace(replace(replace(replace(replace(
+      local.inline_deployment_buildspec_template,
+      "__DEPLOYMENT_ENVIRONMENT__", each.value.environment),
+      "__TERRAFORM_BACKEND_BUCKET__", var.state_bucket_name),
+      "__TERRAFORM_BACKEND_KEY__", each.value.terraform_state_key),
+      "__TERRAFORM_BACKEND_LOCK_KEY__", "${each.value.terraform_state_key}.tflock"),
+    "__TERRAFORM_BACKEND_REGION__", var.aws_region)
   }
   environment {
     compute_type                = "BUILD_GENERAL1_SMALL"
@@ -232,28 +249,6 @@ resource "aws_codebuild_project" "deploy" {
     environment_variable {
       name  = "DEPLOYMENT_TFVARS_PATH"
       value = each.value.terraform_variables_path
-      type  = "PLAINTEXT"
-    }
-    # These backend values belong to the reviewed CodeBuild project, not the
-    # GitHub launch request. Terraform derives the S3 lock object from key.
-    environment_variable {
-      name  = "TERRAFORM_BACKEND_BUCKET"
-      value = var.state_bucket_name
-      type  = "PLAINTEXT"
-    }
-    environment_variable {
-      name  = "TERRAFORM_BACKEND_KEY"
-      value = each.value.terraform_state_key
-      type  = "PLAINTEXT"
-    }
-    environment_variable {
-      name  = "TERRAFORM_BACKEND_LOCK_KEY"
-      value = "${each.value.terraform_state_key}.tflock"
-      type  = "PLAINTEXT"
-    }
-    environment_variable {
-      name  = "TERRAFORM_BACKEND_REGION"
-      value = var.aws_region
       type  = "PLAINTEXT"
     }
   }
