@@ -57,8 +57,8 @@ variable "runtime_secret_arns" {
     auth_lookup          = string
     notification_lookup  = string
     customer_signing_key = string
-    customer_public_keys = string
-    staff_hmac           = string
+    authorizer_trust     = string
+    rds_ca_certificate   = string
   })
   description = "Secret ARNs only. Secret values are initialized by the private deployment job after Terraform and never enter state."
   validation {
@@ -85,20 +85,6 @@ variable "staff_key_id" {
   validation {
     condition     = can(regex("^[A-Za-z0-9_-]{1,64}$", var.staff_key_id))
     error_message = "staff_key_id must be a bounded key identifier."
-  }
-}
-
-variable "database" {
-  type = object({
-    host    = string
-    port    = number
-    name    = string
-    ca_path = string
-  })
-  description = "Allowlisted DB endpoint metadata. Runtime user/password values remain in their separate secrets."
-  validation {
-    condition     = var.database.port == 5432 && length(trimspace(var.database.host)) > 0 && length(trimspace(var.database.name)) > 0 && length(trimspace(var.database.ca_path)) > 0
-    error_message = "Functions must use the reviewed PostgreSQL endpoint, port 5432, database name and pinned CA path."
   }
 }
 

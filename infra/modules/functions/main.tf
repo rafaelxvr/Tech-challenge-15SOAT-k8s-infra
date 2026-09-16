@@ -51,10 +51,10 @@ locals {
   role_statements = {
     authorizer = [
       {
-        Sid      = "ReadVerificationOnly"
+        Sid      = "ReadAuthorizerTrustOnly"
         Effect   = "Allow"
         Action   = ["secretsmanager:GetSecretValue"]
-        Resource = [var.runtime_secret_arns.customer_public_keys, var.runtime_secret_arns.staff_hmac]
+        Resource = [var.runtime_secret_arns.authorizer_trust]
       }
     ]
     challenge = [
@@ -65,10 +65,10 @@ locals {
         Resource = [aws_dynamodb_table.challenge.arn]
       },
       {
-        Sid      = "ReadAuthLookupOnly"
+        Sid      = "ReadChallengeDatabaseAndCaOnly"
         Effect   = "Allow"
         Action   = ["secretsmanager:GetSecretValue"]
-        Resource = [var.runtime_secret_arns.auth_lookup]
+        Resource = [var.runtime_secret_arns.auth_lookup, var.runtime_secret_arns.rds_ca_certificate]
       },
       {
         Sid       = "SendOtpFromVerifiedSender"
@@ -86,10 +86,10 @@ locals {
         Resource = [aws_dynamodb_table.challenge.arn]
       },
       {
-        Sid      = "ReadAuthLookupOnly"
+        Sid      = "ReadVerificationDatabaseAndCaOnly"
         Effect   = "Allow"
         Action   = ["secretsmanager:GetSecretValue"]
-        Resource = [var.runtime_secret_arns.auth_lookup]
+        Resource = [var.runtime_secret_arns.auth_lookup, var.runtime_secret_arns.rds_ca_certificate]
       },
       {
         Sid      = "ReadCustomerSigningKeyOnly"
@@ -112,10 +112,10 @@ locals {
         Resource = [aws_dynamodb_table.delivery.arn]
       },
       {
-        Sid      = "ReadNotificationLookupOnly"
+        Sid      = "ReadNotificationDatabaseAndCaOnly"
         Effect   = "Allow"
         Action   = ["secretsmanager:GetSecretValue"]
-        Resource = [var.runtime_secret_arns.notification_lookup]
+        Resource = [var.runtime_secret_arns.notification_lookup, var.runtime_secret_arns.rds_ca_certificate]
       },
       {
         Sid       = "SendStatusFromVerifiedSender"
@@ -260,33 +260,31 @@ resource "aws_lambda_function" "function" {
       LOG_LEVEL                   = "INFO"
       METRICS_NAMESPACE           = "Oficina/Functions"
       POWERTOOLS_LOGGER_LOG_EVENT = "false"
-      DB_HOST                     = var.database.host
-      DB_PORT                     = tostring(var.database.port)
-      DB_NAME                     = var.database.name
-      DB_CA_PATH                  = var.database.ca_path
       }, each.key == "authorizer" ? {
-      CUSTOMER_JWT_ISSUER             = local.customer_issuer
-      CUSTOMER_JWT_AUDIENCE           = local.audience
-      CUSTOMER_KEY_ID                 = var.customer_key_id
-      CUSTOMER_PUBLIC_KEYS_SECRET_ARN = var.runtime_secret_arns.customer_public_keys
-      STAFF_JWT_ISSUER                = local.staff_issuer
-      STAFF_JWT_AUDIENCE              = local.audience
-      STAFF_KEY_ID                    = var.staff_key_id
-      STAFF_HMAC_SECRET_ARN           = var.runtime_secret_arns.staff_hmac
+      CUSTOMER_JWT_ISSUER         = local.customer_issuer
+      CUSTOMER_JWT_AUDIENCE       = local.audience
+      CUSTOMER_KEY_ID             = var.customer_key_id
+      STAFF_JWT_ISSUER            = local.staff_issuer
+      STAFF_JWT_AUDIENCE          = local.audience
+      STAFF_KEY_ID                = var.staff_key_id
+      AUTHORIZER_TRUST_SECRET_ARN = var.runtime_secret_arns.authorizer_trust
       } : each.key == "notification" ? {
-      DELIVERY_TABLE                 = aws_dynamodb_table.delivery.name
-      NOTIFICATION_LOOKUP_SECRET_ARN = var.runtime_secret_arns.notification_lookup
-      STATUS_SENDER                  = var.ses_sender_email
-      NOTIFICATION_QUEUE_URL         = aws_sqs_queue.notifications.url
+      DB_CA_PATH             = "/tmp/oficina/rds-ca.pem"
+      DELIVERY_TABLE         = aws_dynamodb_table.delivery.name
+      DATABASE_SECRET_ARN    = var.runtime_secret_arns.notification_lookup
+      RDS_CA_CERT_SECRET_ARN = var.runtime_secret_arns.rds_ca_certificate
+      STATUS_SENDER          = var.ses_sender_email
       } : merge({
+        DB_CA_PATH             = "/tmp/oficina/rds-ca.pem"
         CHALLENGE_TABLE        = aws_dynamodb_table.challenge.name
-        AUTH_LOOKUP_SECRET_ARN = var.runtime_secret_arns.auth_lookup
+        DATABASE_SECRET_ARN    = var.runtime_secret_arns.auth_lookup
+        RDS_CA_CERT_SECRET_ARN = var.runtime_secret_arns.rds_ca_certificate
         OTP_SENDER             = var.ses_sender_email
-        CUSTOMER_JWT_ISSUER    = local.customer_issuer
-        CUSTOMER_JWT_AUDIENCE  = local.audience
-        CUSTOMER_KEY_ID        = var.customer_key_id
         }, each.key == "verification" ? {
-        CUSTOMER_SIGNING_KEY_SECRET_ARN = var.runtime_secret_arns.customer_signing_key
+        CUSTOMER_JWT_ISSUER         = local.customer_issuer
+        CUSTOMER_JWT_AUDIENCE       = local.audience
+        CUSTOMER_KEY_ID             = var.customer_key_id
+        CUSTOMER_SIGNING_SECRET_ARN = var.runtime_secret_arns.customer_signing_key
     } : {}))
   }
 

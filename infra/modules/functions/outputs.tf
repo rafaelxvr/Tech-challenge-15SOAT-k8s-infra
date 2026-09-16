@@ -1,4 +1,4 @@
-output "authorizer_arn" {
+output "authorizer_function_arn" {
   value       = aws_lambda_function.function["authorizer"].arn
   description = "The platform state uses this ARN for the one API Gateway REQUEST authorizer binding."
 }
@@ -12,9 +12,9 @@ output "function_arns" {
   }
 }
 
-output "customer_public_keys_secret_arn" {
-  value       = var.runtime_secret_arns.customer_public_keys
-  description = "Secret ARN only; public key material is initialized outside Terraform."
+output "authorizer_trust_secret_arn" {
+  value       = var.runtime_secret_arns.authorizer_trust
+  description = "Authorizer trust secret ARN only; no key or HMAC value is exported."
 }
 
 output "notification_queue_url" { value = aws_sqs_queue.notifications.url }

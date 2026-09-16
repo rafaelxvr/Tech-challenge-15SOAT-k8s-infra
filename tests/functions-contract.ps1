@@ -24,11 +24,18 @@ foreach ($handler in @('CriarDesafioHandler::handleRequest', 'VerificarDesafioHa
 foreach ($permission in @('"sqs:ReceiveMessage"', '"sqs:DeleteMessage"', '"dynamodb:UpdateItem"', '"sqs:SendMessage"', '"secretsmanager:GetSecretValue"')) {
     Assert-Contains $module $permission "Least-privilege runtime policy is missing $permission."
 }
+foreach ($resolverSetting in @('DATABASE_SECRET_ARN', 'CUSTOMER_SIGNING_SECRET_ARN', 'AUTHORIZER_TRUST_SECRET_ARN', 'RDS_CA_CERT_SECRET_ARN', '/tmp/oficina/rds-ca.pem')) {
+    Assert-Contains $module $resolverSetting "I5 must configure FUN resolver setting $resolverSetting."
+}
 Assert-Contains $variables 'var.approved_secret_count == 16' 'The approved 16-secret inventory must remain enforced.'
 Assert-Contains $module 'local.planned_monthly_gb_seconds <= 200000' 'The 200,000 GB-second study envelope must remain enforced.'
 Assert-Contains $platform 'authorizer_result_ttl_in_seconds  = 0' 'The single platform gateway owner must retain no authorizer cache.'
 Assert-Contains $platform 'enable_simple_responses           = true' 'The single platform gateway owner must retain v2 simple responses.'
 if ($platform -match 'identity_sources\s*=') { throw 'The HTTP API authorizer must not configure identity sources.' }
+foreach ($rootOutput in @('infra/functions/staging/outputs.tf', 'infra/functions/production/outputs.tf')) {
+    $rootSource = Get-Content -LiteralPath (Join-Path $repoRoot $rootOutput) -Raw
+    if ($rootSource -match 'authorizerId') { throw "Only I4 may export an API Gateway authorizerId; $rootOutput incorrectly exports one." }
+}
 if ($module -match 'aws_apigatewayv2_|aws_lambda_function_url|reserved_concurrent_executions|provisioned_concurrent_executions|secret_string|secret_binary') {
     throw 'Functions state must not duplicate gateway routes, expose a Function URL, reserve concurrency, or put secret values in Terraform.'
 }

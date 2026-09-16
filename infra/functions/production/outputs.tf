@@ -1,7 +1,6 @@
 output "schemaVersion" { value = 1 }
 output "environment" { value = "production" }
-output "authorizerId" { value = module.functions.authorizer_arn }
-output "customerPublicKeys" { value = module.functions.customer_public_keys_secret_arn }
+output "authorizerTrustSecretArn" { value = module.functions.authorizer_trust_secret_arn }
 output "notificationQueueUrl" { value = module.functions.notification_queue_url }
 output "notificationQueueArn" { value = module.functions.notification_queue_arn }
 output "notificationDlqArn" { value = module.functions.notification_dlq_arn }

@@ -19,12 +19,11 @@ variables {
     auth_lookup          = "arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/staging/auth-lookup-AAAAAA"
     notification_lookup  = "arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/staging/notification-lookup-BBBBBB"
     customer_signing_key = "arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/staging/customer-signing-CCCCCC"
-    customer_public_keys = "arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/staging/customer-public-DDDDDD"
-    staff_hmac           = "arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/staging/staff-hmac-EEEEEE"
+    authorizer_trust     = "arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/staging/authorizer-trust-DDDDDD"
+    rds_ca_certificate   = "arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/staging/rds-ca-EEEEEE"
   }
   customer_key_id             = "customer-2026-01"
   staff_key_id                = "staff-2026-01"
-  database                    = { host = "database.staging.internal", port = 5432, name = "oficina", ca_path = "/opt/certs/rds-ca.pem" }
   ses_sender_email            = "no-reply@example.invalid"
   ses_sandbox_mode            = true
   approved_secret_count       = 16
@@ -108,9 +107,27 @@ run "authorizer_is_verification_only" {
       !strcontains(aws_iam_role_policy.function["authorizer"].policy, "dynamodb:") &&
       !strcontains(aws_iam_role_policy.function["authorizer"].policy, "ses:SendEmail") &&
       !strcontains(aws_iam_role_policy.function["authorizer"].policy, var.runtime_secret_arns.customer_signing_key) &&
-      !contains(keys(aws_lambda_function.function["authorizer"].environment[0].variables), "CUSTOMER_SIGNING_KEY_SECRET_ARN")
+      !contains(keys(aws_lambda_function.function["authorizer"].environment[0].variables), "CUSTOMER_SIGNING_SECRET_ARN")
     )
     error_message = "The authorizer may verify tokens only; it cannot mutate state, send email or receive customer signing material."
+  }
+}
+
+run "handler_secret_arns_match_the_fun_resolver_contract" {
+  command = apply
+  assert {
+    condition = (
+      aws_lambda_function.function["challenge"].environment[0].variables["DATABASE_SECRET_ARN"] == var.runtime_secret_arns.auth_lookup &&
+      aws_lambda_function.function["challenge"].environment[0].variables["RDS_CA_CERT_SECRET_ARN"] == var.runtime_secret_arns.rds_ca_certificate &&
+      !contains(keys(aws_lambda_function.function["challenge"].environment[0].variables), "CUSTOMER_SIGNING_SECRET_ARN") &&
+      aws_lambda_function.function["verification"].environment[0].variables["DATABASE_SECRET_ARN"] == var.runtime_secret_arns.auth_lookup &&
+      aws_lambda_function.function["verification"].environment[0].variables["CUSTOMER_SIGNING_SECRET_ARN"] == var.runtime_secret_arns.customer_signing_key &&
+      aws_lambda_function.function["authorizer"].environment[0].variables["AUTHORIZER_TRUST_SECRET_ARN"] == var.runtime_secret_arns.authorizer_trust &&
+      !contains(keys(aws_lambda_function.function["authorizer"].environment[0].variables), "DATABASE_SECRET_ARN") &&
+      aws_lambda_function.function["notification"].environment[0].variables["DATABASE_SECRET_ARN"] == var.runtime_secret_arns.notification_lookup &&
+      aws_lambda_function.function["notification"].environment[0].variables["RDS_CA_CERT_SECRET_ARN"] == var.runtime_secret_arns.rds_ca_certificate
+    )
+    error_message = "Each Lambda must receive only the SecretResolver ARN settings declared for its handler."
   }
 }
 
