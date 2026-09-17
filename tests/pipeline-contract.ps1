@@ -133,6 +133,11 @@ try {
 
     $workflow = Get-Content -LiteralPath (Join-Path $repoRoot '.github/workflows/ci-cd.yml') -Raw
     Assert-Contains $workflow 'pull_request:' 'PR validation must be present.'
+    Assert-Contains $workflow 'hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd' 'PR validation must install the pinned Terraform action.'
+    Assert-Contains $workflow 'terraform_version: 1.15.8' 'PR validation must install Terraform 1.15.8.'
+    Assert-Contains $workflow 'azure/setup-helm@b9e51907a09c216f16ebe8536097933489208112' 'PR validation must install the pinned Helm action.'
+    Assert-Contains $workflow 'version: v3.17.4' 'PR validation must install Helm 3.17.4.'
+    Assert-Contains $workflow 'Verify pinned toolchain' 'PR validation must assert the installed tool versions.'
     Assert-Contains $workflow "github.ref == 'refs/heads/develop'" 'develop must be the only staging release source.'
     Assert-Contains $workflow "github.ref == 'refs/heads/main'" 'main must be the only production release source.'
     Assert-Contains $workflow 'environment: staging' 'staging must use the protected GitHub environment.'
