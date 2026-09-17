@@ -73,7 +73,7 @@ locals {
         {
           Sid      = "RunOnlyReviewedKubernetesPlatformProviderActions"
           Effect   = "Allow"
-          Action   = ["sts:GetCallerIdentity", "apigateway:GET", "apigateway:POST", "apigateway:PATCH", "apigateway:DELETE", "elasticloadbalancing:DescribeListeners", "elasticloadbalancing:DescribeRules", "elasticloadbalancing:DescribeTargetGroups", "elasticloadbalancing:DescribeTags", "elasticloadbalancing:DescribeTargetHealth", "elasticloadbalancing:DescribeListenerAttributes", "logs:DescribeLogGroups", "logs:ListTagsForResource", "eks:DescribeAccessPolicy", "eks:ListAssociatedAccessPolicies"]
+          Action   = ["sts:GetCallerIdentity", "apigateway:GET", "apigateway:POST", "apigateway:PATCH", "apigateway:DELETE", "elasticloadbalancing:DescribeListeners", "elasticloadbalancing:DescribeRules", "elasticloadbalancing:DescribeTargetGroups", "elasticloadbalancing:DescribeTags", "elasticloadbalancing:DescribeTargetHealth", "elasticloadbalancing:DescribeListenerAttributes", "elasticloadbalancing:DescribeTargetGroupAttributes", "logs:DescribeLogGroups", "logs:ListTagsForResource", "eks:DescribeAccessPolicy", "eks:ListAssociatedAccessPolicies"]
           Resource = "*"
         },
         {
@@ -81,6 +81,12 @@ locals {
           Effect   = "Allow"
           Action   = ["eks:CreateAccessEntry", "eks:DeleteAccessEntry", "eks:DescribeAccessEntry", "eks:ListAccessEntries", "eks:AssociateAccessPolicy", "eks:DisassociateAccessPolicy"]
           Resource = var.cluster_arn
+        },
+        {
+          Sid      = "DescribeOnlyItsClusterAccessEntries"
+          Effect   = "Allow"
+          Action   = ["eks:DescribeAccessEntry"]
+          Resource = "arn:aws:eks:${var.aws_region}:${var.account_id}:access-entry/${element(split("/", var.cluster_arn), 1)}/*"
         },
         {
           Sid      = "CreateOnlyTaggedEnvironmentTargetGroups"
