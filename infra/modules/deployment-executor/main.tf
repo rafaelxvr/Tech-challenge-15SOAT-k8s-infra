@@ -234,6 +234,58 @@ locals {
           } }
         },
         {
+          Sid      = "ManageOnlyEnvironmentFunctionInvokePermissions"
+          Effect   = "Allow"
+          Action   = ["lambda:AddPermission", "lambda:RemovePermission", "lambda:GetPolicy"]
+          Resource = "arn:aws:lambda:${var.aws_region}:${var.account_id}:function:${var.name}-${deployment.environment}-*"
+        },
+        {
+          # Lambda resolves the pinned public layer versions during function
+          # creation. The layer publisher account and names are fixed; no
+          # customer layer or version may be introduced by the executor.
+          Sid    = "ReadOnlyPinnedNewRelicLayerVersions"
+          Effect = "Allow"
+          Action = ["lambda:GetLayerVersion"]
+          Resource = [
+            "arn:aws:lambda:${var.aws_region}:451483290750:layer:NewRelicJava17:*",
+            "arn:aws:lambda:${var.aws_region}:451483290750:layer:NewRelicExtension:*"
+          ]
+        },
+        {
+          # ListLayerVersions has no resource type in Lambda IAM. Keep this
+          # read region-bound; GetLayerVersion below remains ARN-scoped.
+          Sid       = "ListNewRelicLayerVersionsInRegion"
+          Effect    = "Allow"
+          Action    = ["lambda:ListLayerVersions"]
+          Resource  = "*"
+          Condition = { StringEquals = { "aws:RequestedRegion" = var.aws_region } }
+        },
+        {
+          # Functions receive secret ARNs as configuration references. A
+          # deployer may inspect metadata for those exact name families, but
+          # it never receives secret values.
+          Sid    = "DescribeOnlyEnvironmentRuntimeSecretReferences"
+          Effect = "Allow"
+          Action = ["secretsmanager:DescribeSecret"]
+          Resource = [
+            for secret_name in ["auth", "notification", "customer-signing", "authorizer-trust", "rds-ca", "newrelic-ingest"] :
+            "arn:aws:secretsmanager:${var.aws_region}:${var.account_id}:secret:oficina/${deployment.environment}/${secret_name}-*"
+          ]
+        },
+        {
+          Sid    = "ManageOnlyEnvironmentGatewayBindings"
+          Effect = "Allow"
+          Action = ["apigateway:GET", "apigateway:POST", "apigateway:PATCH", "apigateway:DELETE"]
+          Resource = [
+            "arn:aws:apigateway:${var.aws_region}::/apis/*/authorizers",
+            "arn:aws:apigateway:${var.aws_region}::/apis/*/authorizers/*",
+            "arn:aws:apigateway:${var.aws_region}::/apis/*/integrations",
+            "arn:aws:apigateway:${var.aws_region}::/apis/*/integrations/*",
+            "arn:aws:apigateway:${var.aws_region}::/apis/*/routes",
+            "arn:aws:apigateway:${var.aws_region}::/apis/*/routes/*"
+          ]
+        },
+        {
           Sid       = "CreateOnlyTaggedEnvironmentQueuesAndTables"
           Effect    = "Allow"
           Action    = ["sqs:CreateQueue", "dynamodb:CreateTable"]
@@ -243,14 +295,48 @@ locals {
         {
           Sid      = "ManageOnlyNamedEnvironmentQueue"
           Effect   = "Allow"
-          Action   = ["sqs:GetQueueAttributes", "sqs:SetQueueAttributes", "sqs:DeleteQueue"]
+          Action   = ["sqs:GetQueueAttributes", "sqs:SetQueueAttributes", "sqs:DeleteQueue", "sqs:ListQueueTags", "sqs:TagQueue", "sqs:UntagQueue"]
           Resource = "arn:aws:sqs:${var.aws_region}:${var.account_id}:${var.name}-${deployment.environment}-*"
         },
         {
           Sid      = "ManageOnlyNamedEnvironmentTables"
           Effect   = "Allow"
-          Action   = ["dynamodb:DescribeTable", "dynamodb:UpdateTable", "dynamodb:DeleteTable"]
+          Action   = ["dynamodb:DescribeTable", "dynamodb:UpdateTable", "dynamodb:DeleteTable", "dynamodb:DescribeContinuousBackups", "dynamodb:UpdateContinuousBackups", "dynamodb:DescribeTimeToLive", "dynamodb:UpdateTimeToLive", "dynamodb:ListTagsOfResource", "dynamodb:TagResource", "dynamodb:UntagResource"]
           Resource = "arn:aws:dynamodb:${var.aws_region}:${var.account_id}:table/${var.name}-${deployment.environment}-*"
+        },
+        {
+          Sid      = "ManageOnlyEnvironmentAlarmTopic"
+          Effect   = "Allow"
+          Action   = ["sns:CreateTopic", "sns:GetTopicAttributes", "sns:SetTopicAttributes", "sns:DeleteTopic", "sns:ListTagsForResource", "sns:TagResource", "sns:UntagResource"]
+          Resource = "arn:aws:sns:${var.aws_region}:${var.account_id}:${var.name}-${deployment.environment}-native-alarms"
+          Condition = { StringEquals = {
+            "aws:RequestTag/project"     = "oficina-phase3"
+            "aws:RequestTag/environment" = deployment.environment
+          } }
+        },
+        {
+          Sid    = "ManageOnlyEnvironmentAlarmSubscriptions"
+          Effect = "Allow"
+          Action = ["sns:Subscribe", "sns:Unsubscribe", "sns:GetSubscriptionAttributes", "sns:SetSubscriptionAttributes"]
+          Resource = [
+            "arn:aws:sns:${var.aws_region}:${var.account_id}:${var.name}-${deployment.environment}-native-alarms",
+            "arn:aws:sns:${var.aws_region}:${var.account_id}:${var.name}-${deployment.environment}-native-alarms:*"
+          ]
+        },
+        {
+          Sid      = "ManageOnlyEnvironmentNativeAlarms"
+          Effect   = "Allow"
+          Action   = ["cloudwatch:PutMetricAlarm", "cloudwatch:DeleteAlarms", "cloudwatch:EnableAlarmActions", "cloudwatch:DisableAlarmActions", "cloudwatch:ListTagsForResource", "cloudwatch:TagResource", "cloudwatch:UntagResource"]
+          Resource = "arn:aws:cloudwatch:${var.aws_region}:${var.account_id}:alarm:${var.name}-${deployment.environment}-*"
+        },
+        {
+          # CloudWatch does not support resource-level authorization for
+          # DescribeAlarms; keep the read action separate from alarm mutation.
+          Sid       = "DescribeOnlyEnvironmentNativeAlarms"
+          Effect    = "Allow"
+          Action    = ["cloudwatch:DescribeAlarms"]
+          Resource  = "*"
+          Condition = { StringEquals = { "aws:RequestedRegion" = var.aws_region } }
         },
         {
           Sid      = "ManageOnlyNamedEnvironmentFunctionRoles"

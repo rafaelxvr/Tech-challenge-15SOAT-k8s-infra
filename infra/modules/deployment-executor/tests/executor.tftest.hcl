@@ -58,10 +58,10 @@ run "eight_bounded_private_deployers" {
   }
   assert {
     condition = one([for statement in jsondecode(local.executor_permission_profile_documents["app_staging"]).statements : statement if statement.Sid == "ReadOnlyReviewedApplicationBootstrapSecrets"]) == {
-      Sid       = "ReadOnlyReviewedApplicationBootstrapSecrets"
-      Effect    = "Allow"
-      Action    = ["secretsmanager:GetSecretValue"]
-      Resource  = [
+      Sid    = "ReadOnlyReviewedApplicationBootstrapSecrets"
+      Effect = "Allow"
+      Action = ["secretsmanager:GetSecretValue"]
+      Resource = [
         "arn:aws:secretsmanager:us-east-1:123456789012:secret:rds!db-0123456789abcdef",
         "arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/staging/migration-AbCdEf",
         "arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/staging/app-AbCdEf",
@@ -69,7 +69,7 @@ run "eight_bounded_private_deployers" {
         "arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/staging/notification-AbCdEf"
       ]
       Condition = { StringEquals = { "aws:RequestedRegion" = "us-east-1" } }
-    } && one([for statement in jsondecode(local.executor_permission_profile_documents["app_staging"]).statements : statement if statement.Sid == "DescribeOnlyReviewedApplicationBootstrapDatabase"]) == {
+      } && one([for statement in jsondecode(local.executor_permission_profile_documents["app_staging"]).statements : statement if statement.Sid == "DescribeOnlyReviewedApplicationBootstrapDatabase"]) == {
       Sid       = "DescribeOnlyReviewedApplicationBootstrapDatabase"
       Effect    = "Allow"
       Action    = ["rds:DescribeDBInstances"]
@@ -162,13 +162,64 @@ run "eight_bounded_private_deployers" {
       !strcontains(local.executor_permission_profile_documents["db_staging"], "lambda:"),
       !strcontains(local.executor_permission_profile_documents["db_production"], "eks:"),
       !strcontains(local.executor_permission_profile_documents["functions_staging"], "rds:"),
-      !strcontains(local.executor_permission_profile_documents["functions_production"], "apigateway:"),
+      strcontains(local.executor_permission_profile_documents["functions_production"], "apigateway:"),
       strcontains(local.executor_permission_profile_documents["app_staging"], "rds:DescribeDBInstances") && !strcontains(local.executor_permission_profile_documents["app_staging"], "rds:Modify"),
       !strcontains(local.executor_permission_profile_documents["app_production"], "lambda:"),
       !strcontains(local.executor_permission_profile_documents["k8s_staging"], "secretsmanager:"),
       !strcontains(local.executor_permission_profile_documents["k8s_production"], "dynamodb:")
     ])
     error_message = "No executor may inherit another repository's database, function, application, or platform provider permissions."
+  }
+  assert {
+    condition = alltrue([for environment in ["staging", "production"] :
+      one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "ManageOnlyEnvironmentFunctionInvokePermissions"]) == {
+        Sid      = "ManageOnlyEnvironmentFunctionInvokePermissions"
+        Effect   = "Allow"
+        Action   = ["lambda:AddPermission", "lambda:RemovePermission", "lambda:GetPolicy"]
+        Resource = "arn:aws:lambda:us-east-1:123456789012:function:oficina-phase3-${environment}-*"
+      } &&
+      one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "ReadOnlyPinnedNewRelicLayerVersions"]).Resource == [
+        "arn:aws:lambda:us-east-1:451483290750:layer:NewRelicJava17:*",
+        "arn:aws:lambda:us-east-1:451483290750:layer:NewRelicExtension:*"
+      ] &&
+      one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "ListNewRelicLayerVersionsInRegion"]).Resource == "*" &&
+      one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "ListNewRelicLayerVersionsInRegion"]).Condition.StringEquals["aws:RequestedRegion"] == "us-east-1" &&
+      one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "ManageOnlyEnvironmentGatewayBindings"]).Resource == [
+        "arn:aws:apigateway:us-east-1::/apis/*/authorizers",
+        "arn:aws:apigateway:us-east-1::/apis/*/authorizers/*",
+        "arn:aws:apigateway:us-east-1::/apis/*/integrations",
+        "arn:aws:apigateway:us-east-1::/apis/*/integrations/*",
+        "arn:aws:apigateway:us-east-1::/apis/*/routes",
+        "arn:aws:apigateway:us-east-1::/apis/*/routes/*"
+      ]
+    ])
+    error_message = "Functions executors must manage only the reviewed Lambda invoke, pinned New Relic layer and API Gateway v2 binding resources."
+  }
+  assert {
+    condition = alltrue([for environment in ["staging", "production"] :
+      one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "ManageOnlyEnvironmentAlarmTopic"]).Resource == "arn:aws:sns:us-east-1:123456789012:oficina-phase3-${environment}-native-alarms" &&
+      one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "ManageOnlyEnvironmentAlarmSubscriptions"]).Resource == [
+        "arn:aws:sns:us-east-1:123456789012:oficina-phase3-${environment}-native-alarms",
+        "arn:aws:sns:us-east-1:123456789012:oficina-phase3-${environment}-native-alarms:*"
+      ] &&
+      one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "ManageOnlyEnvironmentNativeAlarms"]).Resource == "arn:aws:cloudwatch:us-east-1:123456789012:alarm:oficina-phase3-${environment}-*" &&
+      one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "DescribeOnlyEnvironmentNativeAlarms"]).Resource == "*"
+    ])
+    error_message = "Native alarms must use environment-scoped SNS topics/subscriptions and CloudWatch alarm names."
+  }
+  assert {
+    condition = (alltrue([for environment in ["staging", "production"] :
+      one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "ManageOnlyNamedEnvironmentTables"]).Action == ["dynamodb:DescribeTable", "dynamodb:UpdateTable", "dynamodb:DeleteTable", "dynamodb:DescribeContinuousBackups", "dynamodb:UpdateContinuousBackups", "dynamodb:DescribeTimeToLive", "dynamodb:UpdateTimeToLive", "dynamodb:ListTagsOfResource", "dynamodb:TagResource", "dynamodb:UntagResource"] &&
+      one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "DescribeOnlyEnvironmentRuntimeSecretReferences"]).Action == ["secretsmanager:DescribeSecret"] &&
+      !strcontains(local.executor_permission_profile_documents["functions_${environment}"], "secretsmanager:GetSecretValue") &&
+      !strcontains(local.executor_permission_profile_documents["functions_${environment}"], environment == "staging" ? "production" : "staging")
+      ]) &&
+      alltrue([for key in ["k8s_staging", "k8s_production", "db_staging", "db_production", "app_staging", "app_production"] :
+        !strcontains(local.executor_permission_profile_documents[key], "lambda:AddPermission") &&
+        !strcontains(local.executor_permission_profile_documents[key], "sns:CreateTopic") &&
+        !strcontains(local.executor_permission_profile_documents[key], "dynamodb:UpdateTimeToLive")
+    ]))
+    error_message = "Functions executor metadata reads must include DynamoDB TTL/PITR/tag actions and never grant runtime secret values or cross-environment or cross-owner permissions."
   }
   assert {
     condition     = aws_ecr_repository.deployer.image_tag_mutability == "IMMUTABLE" && can(regex("^sha256:", var.deployer_image_digest))
