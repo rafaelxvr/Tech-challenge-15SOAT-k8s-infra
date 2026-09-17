@@ -19,6 +19,7 @@ K8S owns foundation/bootstrap, EKS, API/stage, private routing, namespace policy
 sequenceDiagram
   participant G as Protected GitHub job
   participant S as Versioned S3 artifact bucket
+  participant L as Shared state bucket lock
   participant C as CodeBuild inline bootstrap
   participant T as Repository deploy adapter
   G->>S: Upload exact archive manifest and reviewed inputs
@@ -26,11 +27,17 @@ sequenceDiagram
   G->>C: Start exact environment project with source version
   C->>S: Download named versions and verify hashes
   C->>T: Invoke only verified adapter with fixed state path
-  T->>S: Acquire shared lock conditionally
+  opt SharedFoundationMutation explicitly supplied with StateBucket
+    T->>L: Acquire shared lock with conditional create
+  end
   T->>T: Validate and run reviewed plan mode
-  T->>S: Release owned lock with exact ETag condition
+  opt shared lock was acquired
+    T->>L: Release owned lock with exact ETag condition
+  end
   C-->>G: Terminal result, not StartBuild success
 ```
+
+The shared-lock arrows are conditional: `scripts/deploy.ps1` acquires that lock only when `-SharedFoundationMutation` and the reviewed `-StateBucket` are supplied. The current platform-owned inline executor invocation supplies the Terraform backend arguments but forwards neither of those two parameters. Its ordinary K8S path therefore has per-state Terraform locking, not the shared-foundation lock shown in the optional branch. Wiring shared mutations through that guarded path remains an explicit activation prerequisite; this diagram does not claim that wiring exists.
 
 No full Terraform state is a cross-repository interface: consumers use [allowlisted outputs](../contracts/outputs-allowlist.json). Kubernetes controllers own target registration; Terraform owns fixed target-group identity. PostgreSQL schema and runtime credentials remain APP-owned; [DB architecture](../../oficina-db-infra/docs/architecture.md) explains relational/service separation.
 
