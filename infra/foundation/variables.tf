@@ -55,6 +55,16 @@ variable "platform_binding_principal_arn" {
     error_message = "platform_binding_principal_arn must be the reviewed dedicated IAM role ARN."
   }
 }
+variable "function_gateway_api_ids" {
+  type        = map(string)
+  default     = {}
+  description = "Reviewed HTTP API v2 ID per environment, passed to the FUN executor only after platform handoff."
+}
+variable "newrelic_layer_version_arns" {
+  type        = object({ java_slim = string, extension = string })
+  default     = null
+  description = "Reviewed immutable New Relic layer version ARNs. Null intentionally withholds FUN layer-read permissions until versions are approved."
+}
 variable "deployments" {
   type = map(object({
     repository               = string

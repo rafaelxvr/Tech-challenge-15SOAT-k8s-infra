@@ -19,6 +19,29 @@ variable "state_bucket_name" {
 }
 variable "private_subnet_ids" { type = list(string) }
 variable "security_group_ids" { type = list(string) }
+variable "function_gateway_api_ids" {
+  type        = map(string)
+  default     = {}
+  description = "Reviewed API Gateway v2 ID per environment. Missing IDs deliberately omit FUN gateway permissions until the platform handoff is reviewed."
+  validation {
+    condition = length(setsubtract(toset(keys(var.function_gateway_api_ids)), toset(["staging", "production"]))) == 0 && alltrue([
+      for api_id in values(var.function_gateway_api_ids) : can(regex("^[a-z0-9]{6,16}$", api_id))
+    ])
+    error_message = "function_gateway_api_ids may contain only reviewed staging/production API IDs with bounded API Gateway syntax."
+  }
+}
+variable "newrelic_layer_version_arns" {
+  type        = object({ java_slim = string, extension = string })
+  default     = null
+  description = "Reviewed immutable New Relic layer version ARNs. Null fails closed by omitting layer-read access until pinned versions are supplied."
+  validation {
+    condition = var.newrelic_layer_version_arns == null || (
+      can(regex("^arn:aws:lambda:us-east-1:451483290750:layer:NewRelicJava17:[1-9][0-9]*$", var.newrelic_layer_version_arns.java_slim)) &&
+      can(regex("^arn:aws:lambda:us-east-1:451483290750:layer:NewRelicExtension:[1-9][0-9]*$", var.newrelic_layer_version_arns.extension))
+    )
+    error_message = "New Relic layer inputs must be exact pinned Java17 and Extension version ARNs from the reviewed publisher account; placeholders and wildcards are forbidden."
+  }
+}
 variable "deployer_image_digest" {
   type        = string
   description = "Immutable SHA-256 digest produced by the reviewed GitHub platform-image workflow."

@@ -21,6 +21,21 @@ locals {
     "eks:UpdateNodegroupConfig",
     "eks:UpdateNodegroupVersion"
   ]
+  function_gateway_binding_statements = {
+    for environment, api_id in var.function_gateway_api_ids : environment => [{
+      Sid    = "ManageOnlyReviewedEnvironmentGatewayBindings"
+      Effect = "Allow"
+      Action = ["apigateway:GET", "apigateway:POST", "apigateway:PATCH", "apigateway:DELETE"]
+      Resource = [
+        "arn:aws:apigateway:${var.aws_region}::/apis/${api_id}/authorizers",
+        "arn:aws:apigateway:${var.aws_region}::/apis/${api_id}/authorizers/*",
+        "arn:aws:apigateway:${var.aws_region}::/apis/${api_id}/integrations",
+        "arn:aws:apigateway:${var.aws_region}::/apis/${api_id}/integrations/*",
+        "arn:aws:apigateway:${var.aws_region}::/apis/${api_id}/routes",
+        "arn:aws:apigateway:${var.aws_region}::/apis/${api_id}/routes/*"
+      ]
+    }]
+  }
   # Each repo/environment pair receives a provider profile for the Terraform
   # resources it owns. JSON keeps the conditional profile shapes homogeneous
   # while the generated IAM policy remains fully inspectable in tests.
@@ -210,7 +225,7 @@ locals {
       ]
       }) : deployment.repository == "oficina-functions" ? jsonencode({
       profile = "functions-${deployment.environment}"
-      statements = [
+      statements = concat([
         {
           Sid       = "ManageOnlyTaggedEnvironmentFunctions"
           Effect    = "Allow"
@@ -240,27 +255,6 @@ locals {
           Resource = "arn:aws:lambda:${var.aws_region}:${var.account_id}:function:${var.name}-${deployment.environment}-*"
         },
         {
-          # Lambda resolves the pinned public layer versions during function
-          # creation. The layer publisher account and names are fixed; no
-          # customer layer or version may be introduced by the executor.
-          Sid    = "ReadOnlyPinnedNewRelicLayerVersions"
-          Effect = "Allow"
-          Action = ["lambda:GetLayerVersion"]
-          Resource = [
-            "arn:aws:lambda:${var.aws_region}:451483290750:layer:NewRelicJava17:*",
-            "arn:aws:lambda:${var.aws_region}:451483290750:layer:NewRelicExtension:*"
-          ]
-        },
-        {
-          # ListLayerVersions has no resource type in Lambda IAM. Keep this
-          # read region-bound; GetLayerVersion below remains ARN-scoped.
-          Sid       = "ListNewRelicLayerVersionsInRegion"
-          Effect    = "Allow"
-          Action    = ["lambda:ListLayerVersions"]
-          Resource  = "*"
-          Condition = { StringEquals = { "aws:RequestedRegion" = var.aws_region } }
-        },
-        {
           # Functions receive secret ARNs as configuration references. A
           # deployer may inspect metadata for those exact name families, but
           # it never receives secret values.
@@ -268,21 +262,8 @@ locals {
           Effect = "Allow"
           Action = ["secretsmanager:DescribeSecret"]
           Resource = [
-            for secret_name in ["auth", "notification", "customer-signing", "authorizer-trust", "rds-ca", "newrelic-ingest"] :
+            for secret_name in ["auth-lookup", "notification-lookup", "customer-signing", "authorizer-trust", "rds-ca", "newrelic-ingest"] :
             "arn:aws:secretsmanager:${var.aws_region}:${var.account_id}:secret:oficina/${deployment.environment}/${secret_name}-*"
-          ]
-        },
-        {
-          Sid    = "ManageOnlyEnvironmentGatewayBindings"
-          Effect = "Allow"
-          Action = ["apigateway:GET", "apigateway:POST", "apigateway:PATCH", "apigateway:DELETE"]
-          Resource = [
-            "arn:aws:apigateway:${var.aws_region}::/apis/*/authorizers",
-            "arn:aws:apigateway:${var.aws_region}::/apis/*/authorizers/*",
-            "arn:aws:apigateway:${var.aws_region}::/apis/*/integrations",
-            "arn:aws:apigateway:${var.aws_region}::/apis/*/integrations/*",
-            "arn:aws:apigateway:${var.aws_region}::/apis/*/routes",
-            "arn:aws:apigateway:${var.aws_region}::/apis/*/routes/*"
           ]
         },
         {
@@ -305,13 +286,33 @@ locals {
           Resource = "arn:aws:dynamodb:${var.aws_region}:${var.account_id}:table/${var.name}-${deployment.environment}-*"
         },
         {
-          Sid      = "ManageOnlyEnvironmentAlarmTopic"
+          Sid      = "CreateOnlyTaggedEnvironmentAlarmTopic"
           Effect   = "Allow"
-          Action   = ["sns:CreateTopic", "sns:GetTopicAttributes", "sns:SetTopicAttributes", "sns:DeleteTopic", "sns:ListTagsForResource", "sns:TagResource", "sns:UntagResource"]
+          Action   = ["sns:CreateTopic"]
           Resource = "arn:aws:sns:${var.aws_region}:${var.account_id}:${var.name}-${deployment.environment}-native-alarms"
           Condition = { StringEquals = {
             "aws:RequestTag/project"     = "oficina-phase3"
             "aws:RequestTag/environment" = deployment.environment
+          } }
+        },
+        {
+          Sid      = "TagOnlyEnvironmentAlarmTopicOnCreate"
+          Effect   = "Allow"
+          Action   = ["sns:TagResource"]
+          Resource = "arn:aws:sns:${var.aws_region}:${var.account_id}:${var.name}-${deployment.environment}-native-alarms"
+          Condition = { StringEquals = {
+            "aws:RequestTag/project"     = "oficina-phase3"
+            "aws:RequestTag/environment" = deployment.environment
+          } }
+        },
+        {
+          Sid      = "ManageOnlyEnvironmentAlarmTopic"
+          Effect   = "Allow"
+          Action   = ["sns:GetTopicAttributes", "sns:SetTopicAttributes", "sns:DeleteTopic", "sns:ListTagsForResource", "sns:UntagResource"]
+          Resource = "arn:aws:sns:${var.aws_region}:${var.account_id}:${var.name}-${deployment.environment}-native-alarms"
+          Condition = { StringEquals = {
+            "aws:ResourceTag/project"     = "oficina-phase3"
+            "aws:ResourceTag/environment" = deployment.environment
           } }
         },
         {
@@ -363,7 +364,12 @@ locals {
           Action   = ["logs:CreateLogGroup", "logs:DeleteLogGroup", "logs:PutRetentionPolicy", "logs:TagResource", "logs:UntagResource"]
           Resource = "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:/aws/lambda/${var.name}-${deployment.environment}-*"
         }
-      ]
+        ], try(local.function_gateway_binding_statements[deployment.environment], []), var.newrelic_layer_version_arns == null ? [] : [{
+          Sid      = "ReadOnlyPinnedNewRelicLayerVersions"
+          Effect   = "Allow"
+          Action   = ["lambda:GetLayerVersion"]
+          Resource = [var.newrelic_layer_version_arns.java_slim, var.newrelic_layer_version_arns.extension]
+      }])
       }) : jsonencode({
       profile = "application-${deployment.environment}"
       statements = concat([

@@ -280,6 +280,8 @@ module "deployment_executor" {
   private_subnet_ids                = module.network.private_subnet_ids
   security_group_ids                = [aws_security_group.codebuild.id]
   deployer_image_digest             = var.deployer_image_digest
+  function_gateway_api_ids          = var.function_gateway_api_ids
+  newrelic_layer_version_arns       = var.newrelic_layer_version_arns
   deployments                       = var.deployments
   application_bootstrap_secret_refs = var.application_bootstrap_secret_refs
 }

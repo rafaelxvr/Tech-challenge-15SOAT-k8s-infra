@@ -1,18 +1,23 @@
 mock_provider "aws" {}
 
 variables {
-  name                  = "oficina-phase3"
-  aws_region            = "us-east-1"
-  account_id            = "123456789012"
-  vpc_id                = "vpc-12345678"
-  cluster_arn           = "arn:aws:eks:us-east-1:123456789012:cluster/oficina-phase3"
-  node_group_arns       = ["arn:aws:eks:us-east-1:123456789012:nodegroup/oficina-phase3/workers-a/example", "arn:aws:eks:us-east-1:123456789012:nodegroup/oficina-phase3/workers-b/example"]
-  kubernetes_repository = "oficina-k8s-infra"
-  artifact_bucket_name  = "oficina-phase3-artifacts-example"
-  state_bucket_name     = "oficina-phase3-state-example"
-  private_subnet_ids    = ["subnet-a", "subnet-b"]
-  security_group_ids    = ["sg-codebuild"]
-  deployer_image_digest = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  name                     = "oficina-phase3"
+  aws_region               = "us-east-1"
+  account_id               = "123456789012"
+  vpc_id                   = "vpc-12345678"
+  cluster_arn              = "arn:aws:eks:us-east-1:123456789012:cluster/oficina-phase3"
+  node_group_arns          = ["arn:aws:eks:us-east-1:123456789012:nodegroup/oficina-phase3/workers-a/example", "arn:aws:eks:us-east-1:123456789012:nodegroup/oficina-phase3/workers-b/example"]
+  kubernetes_repository    = "oficina-k8s-infra"
+  artifact_bucket_name     = "oficina-phase3-artifacts-example"
+  state_bucket_name        = "oficina-phase3-state-example"
+  private_subnet_ids       = ["subnet-a", "subnet-b"]
+  security_group_ids       = ["sg-codebuild"]
+  deployer_image_digest    = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  function_gateway_api_ids = { staging = "stage123", production = "prod456" }
+  newrelic_layer_version_arns = {
+    java_slim = "arn:aws:lambda:us-east-1:451483290750:layer:NewRelicJava17:42"
+    extension = "arn:aws:lambda:us-east-1:451483290750:layer:NewRelicExtension:18"
+  }
   application_bootstrap_secret_refs = {
     staging = {
       database_arn = "arn:aws:rds:us-east-1:123456789012:db:oficina-phase3-staging-postgres"
@@ -179,24 +184,25 @@ run "eight_bounded_private_deployers" {
         Resource = "arn:aws:lambda:us-east-1:123456789012:function:oficina-phase3-${environment}-*"
       } &&
       one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "ReadOnlyPinnedNewRelicLayerVersions"]).Resource == [
-        "arn:aws:lambda:us-east-1:451483290750:layer:NewRelicJava17:*",
-        "arn:aws:lambda:us-east-1:451483290750:layer:NewRelicExtension:*"
+        "arn:aws:lambda:us-east-1:451483290750:layer:NewRelicJava17:42",
+        "arn:aws:lambda:us-east-1:451483290750:layer:NewRelicExtension:18"
       ] &&
-      one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "ListNewRelicLayerVersionsInRegion"]).Resource == "*" &&
-      one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "ListNewRelicLayerVersionsInRegion"]).Condition.StringEquals["aws:RequestedRegion"] == "us-east-1" &&
-      one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "ManageOnlyEnvironmentGatewayBindings"]).Resource == [
-        "arn:aws:apigateway:us-east-1::/apis/*/authorizers",
-        "arn:aws:apigateway:us-east-1::/apis/*/authorizers/*",
-        "arn:aws:apigateway:us-east-1::/apis/*/integrations",
-        "arn:aws:apigateway:us-east-1::/apis/*/integrations/*",
-        "arn:aws:apigateway:us-east-1::/apis/*/routes",
-        "arn:aws:apigateway:us-east-1::/apis/*/routes/*"
+      one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "ManageOnlyReviewedEnvironmentGatewayBindings"]).Resource == [
+        "arn:aws:apigateway:us-east-1::/apis/${environment == "staging" ? "stage123" : "prod456"}/authorizers",
+        "arn:aws:apigateway:us-east-1::/apis/${environment == "staging" ? "stage123" : "prod456"}/authorizers/*",
+        "arn:aws:apigateway:us-east-1::/apis/${environment == "staging" ? "stage123" : "prod456"}/integrations",
+        "arn:aws:apigateway:us-east-1::/apis/${environment == "staging" ? "stage123" : "prod456"}/integrations/*",
+        "arn:aws:apigateway:us-east-1::/apis/${environment == "staging" ? "stage123" : "prod456"}/routes",
+        "arn:aws:apigateway:us-east-1::/apis/${environment == "staging" ? "stage123" : "prod456"}/routes/*"
       ]
     ])
     error_message = "Functions executors must manage only the reviewed Lambda invoke, pinned New Relic layer and API Gateway v2 binding resources."
   }
   assert {
     condition = alltrue([for environment in ["staging", "production"] :
+      one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "CreateOnlyTaggedEnvironmentAlarmTopic"]).Condition.StringEquals["aws:RequestTag/environment"] == environment &&
+      one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "TagOnlyEnvironmentAlarmTopicOnCreate"]).Action == ["sns:TagResource"] &&
+      one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "ManageOnlyEnvironmentAlarmTopic"]).Condition.StringEquals["aws:ResourceTag/environment"] == environment &&
       one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "ManageOnlyEnvironmentAlarmTopic"]).Resource == "arn:aws:sns:us-east-1:123456789012:oficina-phase3-${environment}-native-alarms" &&
       one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "ManageOnlyEnvironmentAlarmSubscriptions"]).Resource == [
         "arn:aws:sns:us-east-1:123456789012:oficina-phase3-${environment}-native-alarms",
@@ -211,8 +217,17 @@ run "eight_bounded_private_deployers" {
     condition = (alltrue([for environment in ["staging", "production"] :
       one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "ManageOnlyNamedEnvironmentTables"]).Action == ["dynamodb:DescribeTable", "dynamodb:UpdateTable", "dynamodb:DeleteTable", "dynamodb:DescribeContinuousBackups", "dynamodb:UpdateContinuousBackups", "dynamodb:DescribeTimeToLive", "dynamodb:UpdateTimeToLive", "dynamodb:ListTagsOfResource", "dynamodb:TagResource", "dynamodb:UntagResource"] &&
       one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "DescribeOnlyEnvironmentRuntimeSecretReferences"]).Action == ["secretsmanager:DescribeSecret"] &&
+      one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "DescribeOnlyEnvironmentRuntimeSecretReferences"]).Resource == [
+        "arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/${environment}/auth-lookup-*",
+        "arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/${environment}/notification-lookup-*",
+        "arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/${environment}/customer-signing-*",
+        "arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/${environment}/authorizer-trust-*",
+        "arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/${environment}/rds-ca-*",
+        "arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/${environment}/newrelic-ingest-*"
+      ] &&
       !strcontains(local.executor_permission_profile_documents["functions_${environment}"], "secretsmanager:GetSecretValue") &&
-      !strcontains(local.executor_permission_profile_documents["functions_${environment}"], environment == "staging" ? "production" : "staging")
+      !strcontains(local.executor_permission_profile_documents["functions_${environment}"], environment == "staging" ? "production" : "staging") &&
+      !strcontains(jsonencode(one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "ReadOnlyPinnedNewRelicLayerVersions"])), ":*")
       ]) &&
       alltrue([for key in ["k8s_staging", "k8s_production", "db_staging", "db_production", "app_staging", "app_production"] :
         !strcontains(local.executor_permission_profile_documents[key], "lambda:AddPermission") &&
@@ -220,6 +235,12 @@ run "eight_bounded_private_deployers" {
         !strcontains(local.executor_permission_profile_documents[key], "dynamodb:UpdateTimeToLive")
     ]))
     error_message = "Functions executor metadata reads must include DynamoDB TTL/PITR/tag actions and never grant runtime secret values or cross-environment or cross-owner permissions."
+  }
+  assert {
+    condition = (!strcontains(local.executor_permission_profile_documents["functions_staging"], "/apis/prod456/") && !strcontains(local.executor_permission_profile_documents["functions_production"], "/apis/stage123/") &&
+      one([for statement in jsondecode(local.executor_permission_profile_documents["functions_staging"]).statements : statement if statement.Sid == "CreateOnlyTaggedEnvironmentAlarmTopic"]).Condition.StringEquals["aws:RequestTag/project"] == "oficina-phase3" &&
+    one([for statement in jsondecode(local.executor_permission_profile_documents["functions_staging"]).statements : statement if statement.Sid == "ManageOnlyEnvironmentAlarmTopic"]).Condition.StringEquals["aws:ResourceTag/project"] == "oficina-phase3")
+    error_message = "FUN gateway permissions must exclude the opposite environment API, and SNS writes/management must use the correct request/resource tag conditions."
   }
   assert {
     condition     = aws_ecr_repository.deployer.image_tag_mutability == "IMMUTABLE" && can(regex("^sha256:", var.deployer_image_digest))
@@ -374,6 +395,31 @@ run "rejects_cross_environment_bootstrap_reference" {
     }
   }
   expect_failures = [var.application_bootstrap_secret_refs]
+}
+
+run "rejects_unreviewed_gateway_and_newrelic_inputs" {
+  command = plan
+  variables {
+    function_gateway_api_ids = { staging = "production-api" }
+    newrelic_layer_version_arns = {
+      java_slim = "arn:aws:lambda:us-east-1:451483290750:layer:NewRelicJava17:*"
+      extension = "arn:aws:lambda:us-east-1:451483290750:layer:NewRelicExtension:18"
+    }
+  }
+  expect_failures = [var.function_gateway_api_ids, var.newrelic_layer_version_arns]
+}
+
+run "fails_closed_without_pinned_newrelic_layers" {
+  command = plan
+  variables {
+    newrelic_layer_version_arns = null
+  }
+  assert {
+    condition = alltrue([for environment in ["staging", "production"] :
+      !strcontains(local.executor_permission_profile_documents["functions_${environment}"], "ReadOnlyPinnedNewRelicLayerVersions")
+    ])
+    error_message = "Missing New Relic layer versions must withhold layer-read access until reviewed pins are supplied."
+  }
 }
 
 run "rejects_duplicate_environment_for_a_repository" {
