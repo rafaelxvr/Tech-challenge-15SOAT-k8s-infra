@@ -158,9 +158,15 @@ run "eight_bounded_private_deployers" {
       one([for statement in jsondecode(local.executor_permission_profile_documents["k8s_${environment}"]).statements : statement if statement.Sid == "RunOnlyReviewedKubernetesPlatformProviderActions"]).Action == [
         "sts:GetCallerIdentity", "apigateway:GET", "apigateway:POST", "apigateway:PATCH", "apigateway:DELETE",
         "elasticloadbalancing:DescribeListeners", "elasticloadbalancing:DescribeRules", "elasticloadbalancing:DescribeTargetGroups", "elasticloadbalancing:DescribeTags",
-        "elasticloadbalancing:DescribeTargetHealth", "elasticloadbalancing:DescribeListenerAttributes", "logs:DescribeLogGroups", "logs:ListTagsForResource",
+        "elasticloadbalancing:DescribeTargetHealth", "elasticloadbalancing:DescribeListenerAttributes", "elasticloadbalancing:DescribeTargetGroupAttributes", "logs:DescribeLogGroups", "logs:ListTagsForResource",
         "eks:DescribeAccessPolicy", "eks:ListAssociatedAccessPolicies"
-      ]
+      ] &&
+      one([for statement in jsondecode(local.executor_permission_profile_documents["k8s_${environment}"]).statements : statement if statement.Sid == "DescribeOnlyItsClusterAccessEntries"]) == {
+        Sid      = "DescribeOnlyItsClusterAccessEntries"
+        Effect   = "Allow"
+        Action   = ["eks:DescribeAccessEntry"]
+        Resource = "arn:aws:eks:us-east-1:123456789012:access-entry/oficina-phase3/*"
+      }
     ])
     error_message = "Kubernetes platform plans require the reviewed read-only EKS, ELB and CloudWatch Logs discovery actions."
   }
