@@ -2,13 +2,40 @@
 
 ```mermaid
 flowchart LR
-    Gateway[API Gateway] --> App[APP on EKS]
-    Gateway --> Functions[Lambda functions]
-    App --> RDS[(RDS boundary)]
-    App --> NR[New Relic]
-    Functions --> NR
+  GitHub[Protected branch and exact OIDC subject] --> Executor[Private CodeBuild executor]
+  Executor --> State[(Versioned state and owner lock)]
+  Executor --> Foundation[VPC EKS internal ALB and VPC Link]
+  APIs[Two environment HTTP APIs] --> Link[VPC Link]
+  Link --> ALB[Internal ALB] --> Service[Stable environment Service and target binding]
+  Service --> Pods[APP pods in isolated namespaces]
+  APIs --> Functions[Referenced auth functions and authorizer]
+  Pods --> DB[(Private environment RDS)]
+  Pods --> NR[New Relic collectors and dashboards]
 ```
 
-This repository owns Terraform EKS, gateway, Lambda, secret-sync and monitoring boundaries. It consumes APP/FUN/DB immutable inputs and has no API or Dockerfile. The consumer contract is the APP [credential-free API snapshot](../../Tech-challenge-15SOAT/docs/phase-3/api/contracts.md).
+K8S owns foundation/bootstrap, EKS, API/stage, private routing, namespace policy, stable Service/binding, workload templates and monitoring. It references APP/FUN/DB contracts. Earlier function/runtime definitions still overlap FUN's new I5 source: [review one owner](../../oficina-functions/docs/runtime-permissions.md) before activating FUN. This infrastructure repository exposes no application API, but it does contain the [private deployer Dockerfile](../images/deployer/Dockerfile). Consumers use the [APP API snapshot](../../Tech-challenge-15SOAT/docs/phase-3/api/contracts.md).
 
-Technologies: Terraform 1.15.8, Kubernetes/Kustomize, AWS gateway/EKS/Lambda resources, and New Relic Helm configuration. Prerequisites are Terraform, PowerShell, and Helm only for the CI render. From the root run `terraform -chdir=infra/monitoring init -backend=false`, `terraform -chdir=infra/monitoring validate`, `terraform -chdir=infra/monitoring test`, `pwsh -NoProfile -File ./tests/platform-manifests-tests.ps1`, and `pwsh -NoProfile -File ./tests/newrelic-chart-tests.ps1`. CI is [`.github/workflows/ci-cd.yml`](../.github/workflows/ci-cd.yml), triggered by pull requests and pushes to `develop`/`main`. Deployment needs protected CI, reviewed inputs, and an authorized R4 window; no active deployment is claimed.
+```mermaid
+sequenceDiagram
+  participant G as Protected GitHub job
+  participant S as Versioned S3 artifact bucket
+  participant C as CodeBuild inline bootstrap
+  participant T as Repository deploy adapter
+  G->>S: Upload exact archive manifest and reviewed inputs
+  S-->>G: Object VersionIds
+  G->>C: Start exact environment project with source version
+  C->>S: Download named versions and verify hashes
+  C->>T: Invoke only verified adapter with fixed state path
+  T->>S: Acquire shared lock conditionally
+  T->>T: Validate and run reviewed plan mode
+  T->>S: Release owned lock with exact ETag condition
+  C-->>G: Terminal result, not StartBuild success
+```
+
+No full Terraform state is a cross-repository interface: consumers use [allowlisted outputs](../contracts/outputs-allowlist.json). Kubernetes controllers own target registration; Terraform owns fixed target-group identity. PostgreSQL schema and runtime credentials remain APP-owned; [DB architecture](../../oficina-db-infra/docs/architecture.md) explains relational/service separation.
+
+Technologies: Terraform 1.15.8, Kubernetes/Kustomize, EKS, API Gateway, S3/CodeBuild and New Relic Helm. Prerequisites: PowerShell 7, Terraform, kubectl for rendering and Helm for chart checks. Deployment additionally needs reviewed account/region/inputs, environment protection, fresh window and a compatible immutable deployer image.
+
+Run `pwsh -File tests/pipeline-contract.ps1`, `pwsh -File tests/application-rollout-tests.ps1`, `terraform fmt -check -recursive`, and the [monitoring/chart checks](../README.md). [CI](../.github/workflows/ci-cd.yml) maps protected develop/main pushes to staging/production; PR verification has no deployment identity.
+
+See [requirements/evidence](evidence/requirements.md), [deployment sequence](deployment-sequence.md), [workload prerequisites](platform-workloads.md), [RFC 001](../../Tech-challenge-15SOAT/docs/rfcs/001-aws-profile.md) and [ADR 002](../../Tech-challenge-15SOAT/docs/adrs/002-environment-scaling.md). Shared EKS/NAT and Single-AZ databases are study limitations, not a high-availability claim.
