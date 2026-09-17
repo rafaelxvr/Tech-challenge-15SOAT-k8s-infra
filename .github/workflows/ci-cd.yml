@@ -91,7 +91,7 @@ jobs:
             test -n "${!variable:-}" || { echo "Missing reviewed environment configuration: ${variable}"; exit 1; }
           done
       - name: Assume staging launcher role with OIDC
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@cabfdba3510de1431bac9dba27511d97497fc100 # v5
         with:
           role-to-assume: ${{ vars.AWS_LAUNCHER_ROLE_ARN }}
           aws-region: us-east-1
@@ -155,7 +155,7 @@ jobs:
             test -n "${!variable:-}" || { echo "Missing reviewed environment configuration: ${variable}"; exit 1; }
           done
       - name: Assume production launcher role with OIDC
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@cabfdba3510de1431bac9dba27511d97497fc100 # v5
         with:
           role-to-assume: ${{ vars.AWS_LAUNCHER_ROLE_ARN }}
           aws-region: us-east-1
@@ -217,7 +217,7 @@ jobs:
             test -n "${!variable:-}" || { echo "Missing reviewed staging configuration: ${variable}"; exit 1; }
           done
       - name: Assume existing staging launcher role with OIDC
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@cabfdba3510de1431bac9dba27511d97497fc100 # v5
         with:
           role-to-assume: ${{ vars.AWS_LAUNCHER_ROLE_ARN }}
           aws-region: us-east-1
