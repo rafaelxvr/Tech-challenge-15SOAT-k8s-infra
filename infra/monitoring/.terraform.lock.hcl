@@ -5,6 +5,7 @@ provider "registry.terraform.io/hashicorp/helm" {
   version     = "2.17.0"
   constraints = "2.17.0"
   hashes = [
+    "h1:K5FEjxvDnxb1JF1kG1xr8J3pNGxoaR3Z0IBG9Csm/Is=",
     "h1:rsqAO9oKyDMLiysQqrWEzf9CNtU9NJtwEGk7bSItC9g=",
     "zh:06fb4e9932f0afc1904d2279e6e99353c2ddac0d765305ce90519af410706bd4",
     "zh:104eccfc781fc868da3c7fec4385ad14ed183eb985c96331a1a937ac79c2d1a7",
@@ -25,6 +26,7 @@ provider "registry.terraform.io/newrelic/newrelic" {
   version     = "3.57.0"
   constraints = "3.57.0"
   hashes = [
+    "h1:K+UtiO7GocBQJoujzbZCT7yxyCX25t2FMqNGw3M/bvI=",
     "h1:TAjSWg8fImEmVI7lQbK4UF4IDRVvR5+omcrRqKq3pbs=",
     "zh:0b5180e0b0ed2b0d7a7b2340ae465121a1fa10313a7783bdbc904b3596f7c725",
     "zh:1ee6458b5e9ec51b24789ce28c68e006f0e365c558073e634a3e545357501fa7",
