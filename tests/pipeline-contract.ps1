@@ -190,6 +190,10 @@ try {
     Assert-Contains $bootstrap 'StartOnlyReviewedAdditionalProject' 'the existing staging launcher may receive only its explicit reviewed addons target.'
     Assert-Contains $bootstrap 'oficina-phase3-foundation-addons' 'the additional launcher target must be the exact foundation-addons project.'
     $deploy = Get-Content -LiteralPath (Join-Path $repoRoot 'scripts/deploy.ps1') -Raw
+    Assert-Contains $deploy '$terraformChdir = "-chdir=$root"' 'Terraform chdir must be passed as an expanded native argument on Linux.'
+    Assert-Contains $deploy '& terraform $terraformChdir init' 'Terraform init must use the expanded environment root.'
+    Assert-Contains $deploy '& terraform $terraformChdir plan' 'Terraform plan must use the expanded environment root.'
+    Assert-True (-not $deploy.Contains('terraform -chdir=$root')) 'Terraform must not receive a literal PowerShell $root token.'
     Assert-Contains $deploy '-out=$plan' 'Terraform must produce a reviewed plan before apply.'
     Assert-Contains $deploy 'apply -input=false $plan' 'Terraform may apply only its reviewed plan file.'
     Assert-Contains $deploy '-backend-config=bucket=$TerraformBackendBucket' 'Terraform init must use the executor-declared backend bucket.'
