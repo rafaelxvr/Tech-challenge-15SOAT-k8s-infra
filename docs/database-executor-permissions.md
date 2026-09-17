@@ -20,6 +20,10 @@ The DB profile's sole `Resource: "*"` statement contains EC2 DescribeVpcs, Descr
 
 The common CodeBuild VPC lifecycle statement and ECR GetAuthorizationToken remain unchanged. Their existing AWS-required `Resource: "*"` scopes support execution rather than granting DB ownership. The separate ENI permission remains CodeBuild-service and private-subnet restricted.
 
+## APP staging bootstrap handoff
+
+The foundation root accepts an optional `application_bootstrap_secret_refs.staging` object. When populated, only the reviewed staging application executor receives `secretsmanager:GetSecretValue` on the exact RDS master, migration, application, authentication and notification secret ARNs, plus `rds:DescribeDBInstances` on the exact staging DB ARN. The variable validates same-account us-east-1 ARNs and immutable secret VersionIds; it defaults to empty, so existing executors retain their prior permissions. Production and every other repository remain excluded.
+
 Every normal deployment executor also receives `logs:CreateLogGroup` on its exact declared `/aws/codebuild/{project-name}` group ARN in the configured account/region, with no wildcard or stream suffix. This lets CodeBuild initialize logging before source download, including the database staging executor. The existing CreateLogStream/PutLogEvents grant remains limited to streams inside that same group. No log-group deletion, retention change, or additional group creation is added. The dedicated foundation-addons executor policy is unchanged. The mocked eight-executor test asserts these exact group/stream boundaries for every repository/environment pair; it failed before this permission was added.
 
 ## Integration prerequisites and limits

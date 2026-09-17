@@ -27,6 +27,37 @@ variable "deployer_image_digest" {
     error_message = "deployer_image_digest must be a lowercase immutable SHA-256 image digest."
   }
 }
+
+variable "application_bootstrap_secret_refs" {
+  type = map(object({
+    database_arn = string
+    master       = object({ arn = string, version_id = string, database_arn = string })
+    migration    = object({ arn = string, version_id = string })
+    app          = object({ arn = string, version_id = string })
+    auth         = object({ arn = string, version_id = string })
+    notification = object({ arn = string, version_id = string })
+  }))
+  default     = {}
+  description = "Optional reviewed APP bootstrap references. Only staging is accepted; version IDs are carried into the reviewed input while IAM is scoped to exact ARNs."
+  validation {
+    condition = length(setsubtract(toset(keys(var.application_bootstrap_secret_refs)), toset(["staging"]))) == 0 && alltrue([
+      for environment, refs in var.application_bootstrap_secret_refs :
+      refs.database_arn == "arn:aws:rds:${var.aws_region}:${var.account_id}:db:${var.name}-${environment}-postgres" &&
+      refs.master.database_arn == refs.database_arn &&
+      can(regex("^arn:aws:secretsmanager:${var.aws_region}:${var.account_id}:secret:rds!db-[A-Za-z0-9-]+$", refs.master.arn)) &&
+      alltrue([
+        for key in ["migration", "app", "auth", "notification"] :
+        can(regex("^arn:aws:secretsmanager:${var.aws_region}:${var.account_id}:secret:oficina/${environment}/${key}-[A-Za-z0-9]{6}$", refs[key].arn))
+      ]) &&
+      alltrue([
+        for reference in [refs.master, refs.migration, refs.app, refs.auth, refs.notification] :
+        can(regex("^[A-Za-z0-9-]{32,64}$", reference.version_id))
+      ])
+    ])
+    error_message = "application_bootstrap_secret_refs accepts only staging and requires exact same-account RDS/runtime secret ARNs plus immutable 32-64 character version IDs."
+  }
+}
+
 variable "deployments" {
   type = map(object({
     repository               = string

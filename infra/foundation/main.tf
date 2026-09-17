@@ -267,20 +267,21 @@ resource "aws_vpc_security_group_ingress_rule" "database_from_functions" {
 }
 
 module "deployment_executor" {
-  source                = "../modules/deployment-executor"
-  name                  = var.name
-  aws_region            = var.aws_region
-  account_id            = var.account_id
-  vpc_id                = module.network.vpc_id
-  cluster_arn           = module.cluster.cluster_arn
-  node_group_arns       = module.cluster.node_group_arns
-  kubernetes_repository = var.kubernetes_repository
-  artifact_bucket_name  = var.artifact_bucket_name
-  state_bucket_name     = var.state_bucket_name
-  private_subnet_ids    = module.network.private_subnet_ids
-  security_group_ids    = [aws_security_group.codebuild.id]
-  deployer_image_digest = var.deployer_image_digest
-  deployments           = var.deployments
+  source                            = "../modules/deployment-executor"
+  name                              = var.name
+  aws_region                        = var.aws_region
+  account_id                        = var.account_id
+  vpc_id                            = module.network.vpc_id
+  cluster_arn                       = module.cluster.cluster_arn
+  node_group_arns                   = module.cluster.node_group_arns
+  kubernetes_repository             = var.kubernetes_repository
+  artifact_bucket_name              = var.artifact_bucket_name
+  state_bucket_name                 = var.state_bucket_name
+  private_subnet_ids                = module.network.private_subnet_ids
+  security_group_ids                = [aws_security_group.codebuild.id]
+  deployer_image_digest             = var.deployer_image_digest
+  deployments                       = var.deployments
+  application_bootstrap_secret_refs = var.application_bootstrap_secret_refs
 }
 
 # This executor is intentionally outside the eight application-repository

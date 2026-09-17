@@ -35,6 +35,18 @@ variable "vpc_cni_addon_version" { type = string }
 variable "coredns_addon_version" { type = string }
 variable "deployer_image_digest" { type = string }
 variable "kubernetes_repository" { type = string }
+variable "application_bootstrap_secret_refs" {
+  type = map(object({
+    database_arn = string
+    master       = object({ arn = string, version_id = string, database_arn = string })
+    migration    = object({ arn = string, version_id = string })
+    app          = object({ arn = string, version_id = string })
+    auth         = object({ arn = string, version_id = string })
+    notification = object({ arn = string, version_id = string })
+  }))
+  default     = {}
+  description = "Optional reviewed APP bootstrap references passed to the application executor; empty by default."
+}
 variable "platform_binding_principal_arn" {
   type        = string
   description = "Dedicated reviewed IAM role used only by the trusted platform binding step; it is never an application release role."

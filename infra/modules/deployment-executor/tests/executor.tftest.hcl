@@ -13,6 +13,16 @@ variables {
   private_subnet_ids    = ["subnet-a", "subnet-b"]
   security_group_ids    = ["sg-codebuild"]
   deployer_image_digest = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  application_bootstrap_secret_refs = {
+    staging = {
+      database_arn = "arn:aws:rds:us-east-1:123456789012:db:oficina-phase3-staging-postgres"
+      master       = { arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:rds!db-0123456789abcdef", version_id = "12345678901234567890123456789012", database_arn = "arn:aws:rds:us-east-1:123456789012:db:oficina-phase3-staging-postgres" }
+      migration    = { arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/staging/migration-AbCdEf", version_id = "23456789012345678901234567890123" }
+      app          = { arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/staging/app-AbCdEf", version_id = "34567890123456789012345678901234" }
+      auth         = { arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/staging/auth-AbCdEf", version_id = "45678901234567890123456789012345" }
+      notification = { arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/staging/notification-AbCdEf", version_id = "56789012345678901234567890123456" }
+    }
+  }
   deployments = {
     k8s_staging          = { repository = "oficina-k8s-infra", environment = "staging", source_prefix = "releases/k8s/staging", terraform_state_key = "environments/staging.tfstate", deployment_mode = "plan", terraform_variables_path = "/tmp/oficina/k8s_staging.tfvars.json" }
     k8s_production       = { repository = "oficina-k8s-infra", environment = "production", source_prefix = "releases/k8s/production", terraform_state_key = "environments/production.tfstate", deployment_mode = "plan", terraform_variables_path = "/tmp/oficina/k8s_production.tfvars.json" }
@@ -45,6 +55,28 @@ run "eight_bounded_private_deployers" {
       !strcontains(project.logs_config[0].cloudwatch_logs[0].group_name, "*")
     ])
     error_message = "Every deployment executor may create only its declared exact account/region log group, and may create streams/write events only inside that same group."
+  }
+  assert {
+    condition = one([for statement in jsondecode(local.executor_permission_profile_documents["app_staging"]).statements : statement if statement.Sid == "ReadOnlyReviewedApplicationBootstrapSecrets"]) == {
+      Sid       = "ReadOnlyReviewedApplicationBootstrapSecrets"
+      Effect    = "Allow"
+      Action    = ["secretsmanager:GetSecretValue"]
+      Resource  = [
+        "arn:aws:secretsmanager:us-east-1:123456789012:secret:rds!db-0123456789abcdef",
+        "arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/staging/migration-AbCdEf",
+        "arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/staging/app-AbCdEf",
+        "arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/staging/auth-AbCdEf",
+        "arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/staging/notification-AbCdEf"
+      ]
+      Condition = { StringEquals = { "aws:RequestedRegion" = "us-east-1" } }
+    } && one([for statement in jsondecode(local.executor_permission_profile_documents["app_staging"]).statements : statement if statement.Sid == "DescribeOnlyReviewedApplicationBootstrapDatabase"]) == {
+      Sid       = "DescribeOnlyReviewedApplicationBootstrapDatabase"
+      Effect    = "Allow"
+      Action    = ["rds:DescribeDBInstances"]
+      Resource  = "arn:aws:rds:us-east-1:123456789012:db:oficina-phase3-staging-postgres"
+      Condition = { StringEquals = { "aws:RequestedRegion" = "us-east-1" } }
+    } && !strcontains(local.executor_permission_profile_documents["app_production"], "ReadOnlyReviewedApplicationBootstrapSecrets")
+    error_message = "Only the reviewed staging application executor may read the exact bootstrap secret ARNs or describe the exact staging database ARN."
   }
   assert {
     condition = alltrue([for environment in ["staging", "production"] :
@@ -131,7 +163,7 @@ run "eight_bounded_private_deployers" {
       !strcontains(local.executor_permission_profile_documents["db_production"], "eks:"),
       !strcontains(local.executor_permission_profile_documents["functions_staging"], "rds:"),
       !strcontains(local.executor_permission_profile_documents["functions_production"], "apigateway:"),
-      !strcontains(local.executor_permission_profile_documents["app_staging"], "rds:"),
+      strcontains(local.executor_permission_profile_documents["app_staging"], "rds:DescribeDBInstances") && !strcontains(local.executor_permission_profile_documents["app_staging"], "rds:Modify"),
       !strcontains(local.executor_permission_profile_documents["app_production"], "lambda:"),
       !strcontains(local.executor_permission_profile_documents["k8s_staging"], "secretsmanager:"),
       !strcontains(local.executor_permission_profile_documents["k8s_production"], "dynamodb:")
@@ -274,6 +306,23 @@ run "database_permissions_reject_broad_and_cross_environment_scope" {
     ])
     error_message = "DB state deletion, broad catalog actions and unconditional shared-lock overwrite must remain unauthorized."
   }
+}
+
+run "rejects_cross_environment_bootstrap_reference" {
+  command = plan
+  variables {
+    application_bootstrap_secret_refs = {
+      staging = {
+        database_arn = "arn:aws:rds:us-east-1:123456789012:db:oficina-phase3-production-postgres"
+        master       = { arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:rds!db-0123456789abcdef", version_id = "12345678901234567890123456789012", database_arn = "arn:aws:rds:us-east-1:123456789012:db:oficina-phase3-production-postgres" }
+        migration    = { arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/staging/migration-AbCdEf", version_id = "23456789012345678901234567890123" }
+        app          = { arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/staging/app-AbCdEf", version_id = "34567890123456789012345678901234" }
+        auth         = { arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/staging/auth-AbCdEf", version_id = "45678901234567890123456789012345" }
+        notification = { arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/staging/notification-AbCdEf", version_id = "56789012345678901234567890123456" }
+      }
+    }
+  }
+  expect_failures = [var.application_bootstrap_secret_refs]
 }
 
 run "rejects_duplicate_environment_for_a_repository" {
