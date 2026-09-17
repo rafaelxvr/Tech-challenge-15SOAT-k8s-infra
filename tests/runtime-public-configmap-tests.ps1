@@ -16,21 +16,29 @@ function Assert-Contains([string]$Text, [string]$Expected, [string]$Message) {
 
 try {
     New-Item -ItemType Directory -Path $scratch -Force | Out-Null
-    @'
-security:
-  jwt:
-    customer:
-      public-keys:
-        customer-2026-09: |
-          -----BEGIN PUBLIC KEY-----
-          fixture-public-key
-          -----END PUBLIC KEY-----
-'@ | Set-Content -LiteralPath $keys -Encoding utf8
-    @'
------BEGIN CERTIFICATE-----
-fixture-rds-ca
------END CERTIFICATE-----
-'@ | Set-Content -LiteralPath $ca -Encoding utf8
+    function Convert-ToPem {
+        param([byte[]]$Bytes, [string]$Begin, [string]$End)
+        $base64 = [Convert]::ToBase64String($Bytes)
+        $lines = @()
+        for ($index = 0; $index -lt $base64.Length; $index += 64) { $lines += $base64.Substring($index, [Math]::Min(64, $base64.Length - $index)) }
+        return (($Begin + "`n" + ($lines -join "`n") + "`n" + $End))
+    }
+    $rsa = [Security.Cryptography.RSA]::Create(2048)
+    $certificate = $null
+    try {
+        $publicPem = Convert-ToPem -Bytes $rsa.ExportSubjectPublicKeyInfo() -Begin '-----BEGIN PUBLIC KEY-----' -End '-----END PUBLIC KEY-----'
+        $request = [Security.Cryptography.X509Certificates.CertificateRequest]::new('CN=fixture-rds', $rsa, [Security.Cryptography.HashAlgorithmName]::SHA256, [Security.Cryptography.RSASignaturePadding]::Pkcs1)
+        $certificate = $request.CreateSelfSigned([DateTimeOffset]::UtcNow.AddDays(-1), [DateTimeOffset]::UtcNow.AddDays(30))
+        $caPem = Convert-ToPem -Bytes $certificate.Export([Security.Cryptography.X509Certificates.X509ContentType]::Cert) -Begin '-----BEGIN CERTIFICATE-----' -End '-----END CERTIFICATE-----'
+    } finally {
+        if ($null -ne $certificate) { $certificate.Dispose() }
+        $rsa.Dispose()
+    }
+    $keyDocument = @('security:', '  jwt:', '    customer:', '      public-keys:', '        customer-2026-09: |') -join "`n"
+    $keyDocument += "`n"
+    $keyDocument += (($publicPem -split "`r?`n" | ForEach-Object { "          $_" }) -join "`n") + "`n"
+    Set-Content -LiteralPath $keys -Value $keyDocument -Encoding utf8
+    Set-Content -LiteralPath $ca -Value $caPem -Encoding utf8
 
     $file = & $renderer -Environment staging -CustomerPublicKeysFile $keys -StaffKeyId 'staff-2026-09' -NotificationQueueUrl 'https://sqs.us-east-1.amazonaws.com/123456789012/oficina-phase3-staging-notifications.fifo' -HistoryZone 'UTC' -RdsCaFile $ca -OutputDirectory $output
     $rendered = Get-Content -LiteralPath $file -Raw
@@ -47,6 +55,18 @@ fixture-rds-ca
     $rejected = $false
     try { & $renderer -Environment staging -CustomerPublicKeysFile $invalidKeys -StaffKeyId 'staff-2026-09' -NotificationQueueUrl 'https://sqs.us-east-1.amazonaws.com/123456789012/oficina-phase3-staging-notifications.fifo' -HistoryZone 'UTC' -RdsCaFile $ca -OutputDirectory $output | Out-Null } catch { $rejected = $true }
     if (-not $rejected) { throw 'Renderer accepted private key material.' }
+
+    $invalidKeys = Join-Path $scratch 'invalid-base64-keys.yaml'
+    (Get-Content -LiteralPath $keys -Raw).Replace('A', '!') | Set-Content -LiteralPath $invalidKeys -Encoding utf8
+    $rejected = $false
+    try { & $renderer -Environment staging -CustomerPublicKeysFile $invalidKeys -StaffKeyId 'staff-2026-09' -NotificationQueueUrl 'https://sqs.us-east-1.amazonaws.com/123456789012/oficina-phase3-staging-notifications.fifo' -HistoryZone 'UTC' -RdsCaFile $ca -OutputDirectory $output | Out-Null } catch { $rejected = $true }
+    if (-not $rejected) { throw 'Renderer accepted arbitrary public-key content.' }
+
+    $invalidCa = Join-Path $scratch 'invalid-ca.pem'
+    (Get-Content -LiteralPath $ca -Raw).Replace('A', '!') | Set-Content -LiteralPath $invalidCa -Encoding utf8
+    $rejected = $false
+    try { & $renderer -Environment staging -CustomerPublicKeysFile $keys -StaffKeyId 'staff-2026-09' -NotificationQueueUrl 'https://sqs.us-east-1.amazonaws.com/123456789012/oficina-phase3-staging-notifications.fifo' -HistoryZone 'UTC' -RdsCaFile $invalidCa -OutputDirectory $output | Out-Null } catch { $rejected = $true }
+    if (-not $rejected) { throw 'Renderer accepted arbitrary RDS CA marker content.' }
 
     $rejected = $false
     try { & $renderer -Environment staging -CustomerPublicKeysFile $keys -StaffKeyId 'staff-2026-09' -NotificationQueueUrl 'https://sqs.us-east-1.amazonaws.com/123456789012/oficina-phase3-production-notifications.fifo' -HistoryZone 'UTC' -RdsCaFile $ca -OutputDirectory $output | Out-Null } catch { $rejected = $true }
