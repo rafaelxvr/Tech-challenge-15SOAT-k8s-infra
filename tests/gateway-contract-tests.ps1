@@ -7,7 +7,9 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $module = Get-Content -LiteralPath (Join-Path $repoRoot 'infra/modules/platform-environment/main.tf') -Raw
 $variables = Get-Content -LiteralPath (Join-Path $repoRoot 'infra/modules/platform-environment/variables.tf') -Raw
 $contractPath = Join-Path $repoRoot 'infra/modules/platform-environment/contracts/phase3-v2/routes.json'
+$handoffSchemaPath = Join-Path $repoRoot 'contracts/gateway-handoff.schema.json'
 $contract = Get-Content -LiteralPath $contractPath -Raw | ConvertFrom-Json
+$handoffSchema = Get-Content -LiteralPath $handoffSchemaPath -Raw | ConvertFrom-Json
 $contractHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $contractPath).Hash.ToLowerInvariant()
 
 function Assert-Contains([string]$Text, [string]$Expected, [string]$Message) {
@@ -15,6 +17,7 @@ function Assert-Contains([string]$Text, [string]$Expected, [string]$Message) {
 }
 
 if ($contract.defaultDecision -ne 'DENY') { throw 'The gateway contract must default deny.' }
+if (@($handoffSchema.required) -notcontains 'api_id' -or @($handoffSchema.required) -notcontains 'execution_arn' -or @($handoffSchema.required) -notcontains 'authorizer_id' -or @($handoffSchema.required) -notcontains 'environment') { throw 'The FUN/K8S handoff schema must require the complete API/authorizer/environment object.' }
 if ($contractHash -ne '7e1cff5e6c57174af792bb44b33e63572f885698ab5ef2f24d5aeebda883c1a8') { throw 'The vendored route matrix no longer matches APP phase3-v2.' }
 if (-not ($contract.routes | Where-Object { $_.method -eq 'GET' -and $_.path -eq '/api/admin/relatorios/ordens' -and $_.decision -eq 'ALLOW' })) { throw 'phase3-v2 must include the protected ADMIN report route.' }
 if (-not ($contract.routes | Where-Object { $_.path -eq '/api/ordens-servico/email/atualizar-status' -and $_.decision -eq 'DENY' })) { throw 'The retired email mutation must remain denied.' }
