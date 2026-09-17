@@ -41,8 +41,17 @@ locals {
     if ($commands.Count -ne 1 -or -not $commands[0].Contains('Missing reviewed addon input: ${variable}')) {
         throw 'The workdir, downloads, verification, Terraform and EXIT cleanup must share one CodeBuild command shell.'
     }
-    $gitBash = 'C:/Program Files/Git/bin/bash.exe'
-    if (-not (Test-Path -LiteralPath $gitBash -PathType Leaf)) { throw 'Git Bash is required for the offline buildspec shell fixture.' }
+    $runningOnWindows = [System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT
+    $shell = if ($runningOnWindows) {
+        'C:/Program Files/Git/bin/bash.exe'
+    }
+    else {
+        $bashCommand = @(Get-Command bash -CommandType Application -ErrorAction SilentlyContinue)[0]
+        if ($null -eq $bashCommand) { $null } else { $bashCommand.Source }
+    }
+    if ([string]::IsNullOrWhiteSpace($shell) -or -not (Test-Path -LiteralPath $shell -PathType Leaf)) {
+        throw $(if ($runningOnWindows) { 'Git Bash is required for the offline buildspec shell fixture.' } else { 'bash is required for the offline buildspec shell fixture.' })
+    }
     # Execute the whole rendered command, including its EXIT trap. Cloud and
     # archive/Terraform operations are stubs; hashes and manifest checks are real.
     $harness = @'
@@ -100,9 +109,14 @@ rm() {
   command rm -rf -- "$target"
 }
 '@
+    if (-not $runningOnWindows) {
+        $harness = $harness.Replace('fixture_root="$(cygpath -u "$1")"', 'fixture_root="$1"')
+        $harness = $harness.Replace('real_pwsh="$(cygpath -u "$5")"', 'real_pwsh="$5"')
+        $harness = $harness.Replace('WORKDIR="$(cygpath -w "$workdir")" command "$real_pwsh" "$@"', 'WORKDIR="$workdir" command "$real_pwsh" "$@"')
+    }
     $runner = Join-Path $temp 'build-lifecycle.sh'
     (($harness + "`n" + $commands[0]) -replace "`r", '') | Set-Content -LiteralPath $runner -NoNewline
-    & $gitBash -n $runner
+    & $shell -n $runner
     if ($LASTEXITCODE -ne 0) { throw 'The rendered build block must be valid Bash, including its tfvars heredoc.' }
     $realPwsh = (Get-Command pwsh -CommandType Application).Source
     $allStages = @('download:bundle.zip', 'download:manifest.json', 'manifest', 'unzip', 'terraform:init', 'terraform:validate', 'terraform:plan', 'terraform:apply', 'cleanup')
@@ -119,7 +133,7 @@ rm() {
         $manifestSha = (Get-FileHash -LiteralPath $manifest -Algorithm SHA256).Hash.ToLowerInvariant()
         $expectedBundle = if ($scenario -eq 'bundle-mismatch') { '0' * 64 } else { $bundleSha }
         $expectedManifest = if ($scenario -eq 'manifest-mismatch') { '0' * 64 } else { $manifestSha }
-        $runOutput = & $gitBash $runner $fixture $expectedBundle $expectedManifest $scenario $realPwsh 2>&1
+        $runOutput = & $shell $runner $fixture $expectedBundle $expectedManifest $scenario $realPwsh 2>&1
         $runExit = $LASTEXITCODE
         if (($scenario -eq 'success' -and $runExit -ne 0) -or ($scenario -ne 'success' -and $runExit -eq 0)) {
             throw "Unexpected lifecycle result for ${scenario}: exit $runExit; $($runOutput -join [Environment]::NewLine)"

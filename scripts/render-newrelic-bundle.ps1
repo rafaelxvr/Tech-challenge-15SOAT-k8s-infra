@@ -37,13 +37,13 @@ if ($values -match '\$\{[A-Za-z_]+\}') { throw 'New Relic values contain an unre
 Set-Content -LiteralPath $valuesPath -Value $values -NoNewline
 
 # `helm template` validates the pinned chart's values schema before producing the manifest.
-& $helm.Source template nri-bundle nri-bundle `
+$renderedManifest = & $helm.Source template nri-bundle nri-bundle `
     --repo https://helm-charts.newrelic.com `
     --version 5.0.94 `
     --namespace newrelic `
-    --values $valuesPath `
-    | Set-Content -LiteralPath $manifestPath -NoNewline
+    --values $valuesPath
 if ($LASTEXITCODE -ne 0) { throw 'Pinned nri-bundle schema/render validation failed.' }
+($renderedManifest -join [Environment]::NewLine) | Set-Content -LiteralPath $manifestPath -NoNewline
 
 $secretSync = (Get-Content -LiteralPath $secretSyncTemplatePath -Raw).
     Replace('${ingest_secret_name}', $IngestSecretName).
@@ -57,7 +57,7 @@ foreach ($collector in @('newrelic-infrastructure', 'kube-state-metrics', 'newre
     if (-not $manifest.Contains($collector)) { throw "Rendered nri-bundle is missing approved collector $collector." }
 }
 if (-not $manifest.Contains("secretName: $IngestSecretName") -or -not $manifest.Contains('key: license-key') -or -not $manifest.Contains($IngestSecretArn)) { throw 'Rendered collector credentials must sync the exact environment ingest secret as license-key in the newrelic namespace.' }
-if ($manifest -match '(?m)^kind: (?:Deployment|DaemonSet|StatefulSet)$') {
+if ($manifest -match '(?m)^kind: (?:Deployment|DaemonSet|StatefulSet)\r?$') {
     # Continue to account below. This branch makes an empty render an explicit failure.
 } else {
     throw 'Pinned nri-bundle render contains no collector workload resources.'
@@ -77,11 +77,11 @@ function Convert-MemoryToMiB([string]$Value) {
 
 $workloads = @()
 foreach ($document in ($manifest -split '(?m)^---\s*$')) {
-    if ($document -notmatch '(?m)^kind: (DaemonSet|Deployment|StatefulSet)$') { continue }
+    if ($document -notmatch '(?m)^kind: (DaemonSet|Deployment|StatefulSet)\r?$') { continue }
     $kind = $Matches[1]
-    if ($document -notmatch '(?ms)^metadata:\s*\r?\n\s*name:\s*([^\s]+)') { continue }
+    if ($document -notmatch '(?ms)^metadata:\s*.*?^\s+name:\s*([^\s]+)') { continue }
     $name = $Matches[1]
-    if ($name -notmatch '(newrelic|kube-state-metrics)') { continue }
+    if ($name -notmatch '(newrelic|nri-bundle-nrk8|kube-state-metrics)') { continue }
 
     # Account only requests. Limits are deliberately not added to the scheduling envelope.
     $requestBlocks = [regex]::Matches($document, '(?ms)^\s*requests:\s*\r?\n(?<requestBlock>.*?)(?=^\s*limits:|^\s*resources:|\z)')
@@ -101,7 +101,7 @@ $report = [ordered]@{
     chart = 'nri-bundle'
     chartVersion = '5.0.94'
     environment = $Environment
-    collectionInterval = '60s'
+    collectionInterval = '30s'
     collectorWorkloads = $workloads
     totalRequestedCpuMilli = @($workloads | Measure-Object -Property requestedCpuMilli -Sum).Sum
     totalRequestedMemoryMiB = @($workloads | Measure-Object -Property requestedMemoryMiB -Sum).Sum

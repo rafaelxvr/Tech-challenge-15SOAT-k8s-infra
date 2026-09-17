@@ -19,6 +19,45 @@ variable "state_bucket_name" {
 }
 variable "private_subnet_ids" { type = list(string) }
 variable "security_group_ids" { type = list(string) }
+variable "function_gateway_bindings" {
+  type = map(object({
+    api_id                      = string
+    authorizer_id               = string
+    challenge_integration_id    = string
+    verification_integration_id = string
+    challenge_route_id          = string
+    verification_route_id       = string
+  }))
+  default     = {}
+  description = "Reviewed FUN-owned API Gateway v2 resource IDs per environment. Missing bindings deliberately omit FUN gateway permissions until the two-phase handoff is reviewed."
+  validation {
+    condition = (length(setsubtract(toset(keys(var.function_gateway_bindings)), toset(["staging", "production"]))) == 0 &&
+      length(distinct([for binding in values(var.function_gateway_bindings) : binding.api_id])) == length(values(var.function_gateway_bindings)) &&
+      alltrue([
+        for binding in values(var.function_gateway_bindings) : alltrue([
+          can(regex("^[a-z0-9]{6,16}$", binding.api_id)),
+          can(regex("^[A-Za-z0-9]{3,64}$", binding.authorizer_id)),
+          can(regex("^[A-Za-z0-9]{3,64}$", binding.challenge_integration_id)),
+          can(regex("^[A-Za-z0-9]{3,64}$", binding.verification_integration_id)),
+          can(regex("^[A-Za-z0-9]{3,64}$", binding.challenge_route_id)),
+          can(regex("^[A-Za-z0-9]{3,64}$", binding.verification_route_id))
+        ])
+    ]))
+    error_message = "function_gateway_bindings must contain bounded reviewed FUN authorizer, integration and CPF route IDs, with distinct staging/production API IDs."
+  }
+}
+variable "newrelic_layer_version_arns" {
+  type        = object({ java_slim = string, extension = string })
+  default     = null
+  description = "Reviewed immutable New Relic layer version ARNs. Null fails closed by omitting layer-read access until pinned versions are supplied."
+  validation {
+    condition = var.newrelic_layer_version_arns == null || (
+      can(regex("^arn:aws:lambda:us-east-1:451483290750:layer:NewRelicJava17:[1-9][0-9]*$", var.newrelic_layer_version_arns.java_slim)) &&
+      can(regex("^arn:aws:lambda:us-east-1:451483290750:layer:NewRelicExtension:[1-9][0-9]*$", var.newrelic_layer_version_arns.extension))
+    )
+    error_message = "New Relic layer inputs must be exact pinned Java17 and Extension version ARNs from the reviewed publisher account; placeholders and wildcards are forbidden."
+  }
+}
 variable "deployer_image_digest" {
   type        = string
   description = "Immutable SHA-256 digest produced by the reviewed GitHub platform-image workflow."

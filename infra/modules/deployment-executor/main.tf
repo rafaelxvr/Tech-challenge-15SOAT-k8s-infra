@@ -21,6 +21,42 @@ locals {
     "eks:UpdateNodegroupConfig",
     "eks:UpdateNodegroupVersion"
   ]
+  function_gateway_binding_statements = {
+    for environment, binding in var.function_gateway_bindings : environment => [
+      {
+        Sid    = "DiscoverOnlyReviewedEnvironmentGatewayCollections"
+        Effect = "Allow"
+        Action = ["apigateway:GET"]
+        Resource = [
+          "arn:aws:apigateway:${var.aws_region}::/apis/${binding.api_id}/authorizers",
+          "arn:aws:apigateway:${var.aws_region}::/apis/${binding.api_id}/integrations",
+          "arn:aws:apigateway:${var.aws_region}::/apis/${binding.api_id}/routes"
+        ]
+      },
+      {
+        Sid    = "CreateOnlyReviewedEnvironmentGatewayBindings"
+        Effect = "Allow"
+        Action = ["apigateway:POST"]
+        Resource = [
+          "arn:aws:apigateway:${var.aws_region}::/apis/${binding.api_id}/authorizers",
+          "arn:aws:apigateway:${var.aws_region}::/apis/${binding.api_id}/integrations",
+          "arn:aws:apigateway:${var.aws_region}::/apis/${binding.api_id}/routes"
+        ]
+      },
+      {
+        Sid    = "ManageOnlyReviewedEnvironmentGatewayResources"
+        Effect = "Allow"
+        Action = ["apigateway:GET", "apigateway:PATCH", "apigateway:DELETE"]
+        Resource = [
+          "arn:aws:apigateway:${var.aws_region}::/apis/${binding.api_id}/authorizers/${binding.authorizer_id}",
+          "arn:aws:apigateway:${var.aws_region}::/apis/${binding.api_id}/integrations/${binding.challenge_integration_id}",
+          "arn:aws:apigateway:${var.aws_region}::/apis/${binding.api_id}/integrations/${binding.verification_integration_id}",
+          "arn:aws:apigateway:${var.aws_region}::/apis/${binding.api_id}/routes/${binding.challenge_route_id}",
+          "arn:aws:apigateway:${var.aws_region}::/apis/${binding.api_id}/routes/${binding.verification_route_id}"
+        ]
+      }
+    ]
+  }
   # Each repo/environment pair receives a provider profile for the Terraform
   # resources it owns. JSON keeps the conditional profile shapes homogeneous
   # while the generated IAM policy remains fully inspectable in tests.
@@ -210,7 +246,7 @@ locals {
       ]
       }) : deployment.repository == "oficina-functions" ? jsonencode({
       profile = "functions-${deployment.environment}"
-      statements = [
+      statements = concat([
         {
           Sid       = "ManageOnlyTaggedEnvironmentFunctions"
           Effect    = "Allow"
@@ -234,6 +270,24 @@ locals {
           } }
         },
         {
+          Sid      = "ManageOnlyEnvironmentFunctionInvokePermissions"
+          Effect   = "Allow"
+          Action   = ["lambda:AddPermission", "lambda:RemovePermission", "lambda:GetPolicy"]
+          Resource = "arn:aws:lambda:${var.aws_region}:${var.account_id}:function:${var.name}-${deployment.environment}-*"
+        },
+        {
+          # Functions receive secret ARNs as configuration references. A
+          # deployer may inspect metadata for those exact name families, but
+          # it never receives secret values.
+          Sid    = "DescribeOnlyEnvironmentRuntimeSecretReferences"
+          Effect = "Allow"
+          Action = ["secretsmanager:DescribeSecret"]
+          Resource = [
+            for secret_name in ["auth-lookup", "notification-lookup", "customer-signing", "authorizer-trust", "rds-ca", "newrelic-ingest"] :
+            "arn:aws:secretsmanager:${var.aws_region}:${var.account_id}:secret:oficina/${deployment.environment}/${secret_name}-*"
+          ]
+        },
+        {
           Sid       = "CreateOnlyTaggedEnvironmentQueuesAndTables"
           Effect    = "Allow"
           Action    = ["sqs:CreateQueue", "dynamodb:CreateTable"]
@@ -243,14 +297,68 @@ locals {
         {
           Sid      = "ManageOnlyNamedEnvironmentQueue"
           Effect   = "Allow"
-          Action   = ["sqs:GetQueueAttributes", "sqs:SetQueueAttributes", "sqs:DeleteQueue"]
+          Action   = ["sqs:GetQueueAttributes", "sqs:SetQueueAttributes", "sqs:DeleteQueue", "sqs:ListQueueTags", "sqs:TagQueue", "sqs:UntagQueue"]
           Resource = "arn:aws:sqs:${var.aws_region}:${var.account_id}:${var.name}-${deployment.environment}-*"
         },
         {
           Sid      = "ManageOnlyNamedEnvironmentTables"
           Effect   = "Allow"
-          Action   = ["dynamodb:DescribeTable", "dynamodb:UpdateTable", "dynamodb:DeleteTable"]
+          Action   = ["dynamodb:DescribeTable", "dynamodb:UpdateTable", "dynamodb:DeleteTable", "dynamodb:DescribeContinuousBackups", "dynamodb:UpdateContinuousBackups", "dynamodb:DescribeTimeToLive", "dynamodb:UpdateTimeToLive", "dynamodb:ListTagsOfResource", "dynamodb:TagResource", "dynamodb:UntagResource"]
           Resource = "arn:aws:dynamodb:${var.aws_region}:${var.account_id}:table/${var.name}-${deployment.environment}-*"
+        },
+        {
+          Sid      = "CreateOnlyTaggedEnvironmentAlarmTopic"
+          Effect   = "Allow"
+          Action   = ["sns:CreateTopic"]
+          Resource = "arn:aws:sns:${var.aws_region}:${var.account_id}:${var.name}-${deployment.environment}-native-alarms"
+          Condition = { StringEquals = {
+            "aws:RequestTag/project"     = "oficina-phase3"
+            "aws:RequestTag/environment" = deployment.environment
+          } }
+        },
+        {
+          Sid      = "TagOnlyEnvironmentAlarmTopicOnCreate"
+          Effect   = "Allow"
+          Action   = ["sns:TagResource"]
+          Resource = "arn:aws:sns:${var.aws_region}:${var.account_id}:${var.name}-${deployment.environment}-native-alarms"
+          Condition = { StringEquals = {
+            "aws:RequestTag/project"     = "oficina-phase3"
+            "aws:RequestTag/environment" = deployment.environment
+          } }
+        },
+        {
+          Sid      = "ManageOnlyEnvironmentAlarmTopic"
+          Effect   = "Allow"
+          Action   = ["sns:GetTopicAttributes", "sns:SetTopicAttributes", "sns:DeleteTopic", "sns:ListTagsForResource", "sns:UntagResource"]
+          Resource = "arn:aws:sns:${var.aws_region}:${var.account_id}:${var.name}-${deployment.environment}-native-alarms"
+          Condition = { StringEquals = {
+            "aws:ResourceTag/project"     = "oficina-phase3"
+            "aws:ResourceTag/environment" = deployment.environment
+          } }
+        },
+        {
+          Sid    = "ManageOnlyEnvironmentAlarmSubscriptions"
+          Effect = "Allow"
+          Action = ["sns:Subscribe", "sns:Unsubscribe", "sns:GetSubscriptionAttributes", "sns:SetSubscriptionAttributes"]
+          Resource = [
+            "arn:aws:sns:${var.aws_region}:${var.account_id}:${var.name}-${deployment.environment}-native-alarms",
+            "arn:aws:sns:${var.aws_region}:${var.account_id}:${var.name}-${deployment.environment}-native-alarms:*"
+          ]
+        },
+        {
+          Sid      = "ManageOnlyEnvironmentNativeAlarms"
+          Effect   = "Allow"
+          Action   = ["cloudwatch:PutMetricAlarm", "cloudwatch:DeleteAlarms", "cloudwatch:EnableAlarmActions", "cloudwatch:DisableAlarmActions", "cloudwatch:ListTagsForResource", "cloudwatch:TagResource", "cloudwatch:UntagResource"]
+          Resource = "arn:aws:cloudwatch:${var.aws_region}:${var.account_id}:alarm:${var.name}-${deployment.environment}-*"
+        },
+        {
+          # CloudWatch does not support resource-level authorization for
+          # DescribeAlarms; keep the read action separate from alarm mutation.
+          Sid       = "DescribeOnlyEnvironmentNativeAlarms"
+          Effect    = "Allow"
+          Action    = ["cloudwatch:DescribeAlarms"]
+          Resource  = "*"
+          Condition = { StringEquals = { "aws:RequestedRegion" = var.aws_region } }
         },
         {
           Sid      = "ManageOnlyNamedEnvironmentFunctionRoles"
@@ -277,7 +385,12 @@ locals {
           Action   = ["logs:CreateLogGroup", "logs:DeleteLogGroup", "logs:PutRetentionPolicy", "logs:TagResource", "logs:UntagResource"]
           Resource = "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:/aws/lambda/${var.name}-${deployment.environment}-*"
         }
-      ]
+        ], try(local.function_gateway_binding_statements[deployment.environment], []), var.newrelic_layer_version_arns == null ? [] : [{
+          Sid      = "ReadOnlyPinnedNewRelicLayerVersions"
+          Effect   = "Allow"
+          Action   = ["lambda:GetLayerVersion"]
+          Resource = [var.newrelic_layer_version_arns.java_slim, var.newrelic_layer_version_arns.extension]
+      }])
       }) : jsonencode({
       profile = "application-${deployment.environment}"
       statements = concat([

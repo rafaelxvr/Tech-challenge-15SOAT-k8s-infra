@@ -12,12 +12,23 @@ global:
 newrelic-infrastructure:
   enabled: true
   privileged: false
-  # Supported Infrastructure-agent interval syntax. One minute is the approved low-data target.
-  config:
-    interval: 60s
-  resources:
-    requests: { cpu: 75m, memory: 128Mi }
-    limits: { cpu: 150m, memory: 192Mi }
+  # The pinned chart rejects intervals above 40 seconds; 30 seconds is its low-data target.
+  common:
+    config:
+      interval: 30s
+  # nri-bundle 5.0.94 requires bounded resources per infrastructure component.
+  kubelet:
+    resources:
+      requests: { cpu: 75m, memory: 128Mi }
+      limits: { cpu: 150m, memory: 192Mi }
+  ksm:
+    resources:
+      requests: { cpu: 75m, memory: 128Mi }
+      limits: { cpu: 150m, memory: 192Mi }
+  controlPlane:
+    resources:
+      requests: { cpu: 75m, memory: 128Mi }
+      limits: { cpu: 150m, memory: 192Mi }
 kube-state-metrics:
   enabled: true
   resources:
