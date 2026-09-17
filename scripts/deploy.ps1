@@ -90,14 +90,15 @@ try {
         & (Join-Path $PSScriptRoot 'deployment-lock.ps1') -Action Acquire -StateBucket $StateBucket -OwnerToken $ownerToken | Out-Null
         $locked = $true
     }
-    & terraform -chdir=$root init -input=false "-backend-config=bucket=$TerraformBackendBucket" "-backend-config=key=$TerraformBackendKey" "-backend-config=region=$TerraformBackendRegion" '-backend-config=use_lockfile=true'
+    $terraformChdir = "-chdir=$root"
+    & terraform $terraformChdir init -input=false "-backend-config=bucket=$TerraformBackendBucket" "-backend-config=key=$TerraformBackendKey" "-backend-config=region=$TerraformBackendRegion" '-backend-config=use_lockfile=true'
     if ($LASTEXITCODE -ne 0) { Fail 'terraform init failed.' }
-    & terraform -chdir=$root validate
+    & terraform $terraformChdir validate
     if ($LASTEXITCODE -ne 0) { Fail 'terraform validate failed.' }
-    & terraform -chdir=$root plan -input=false -lock-timeout=5m -var-file=$TerraformVariablesFile -out=$plan
+    & terraform $terraformChdir plan -input=false -lock-timeout=5m "-var-file=$TerraformVariablesFile" "-out=$plan"
     if ($LASTEXITCODE -ne 0) { Fail 'terraform plan failed; apply was not attempted.' }
     if ($ApplyReviewedPlan) {
-        & terraform -chdir=$root apply -input=false $plan
+        & terraform $terraformChdir apply -input=false $plan
         if ($LASTEXITCODE -ne 0) { Fail 'terraform apply of the reviewed plan failed.' }
         Write-Output 'Reviewed Terraform plan applied.'
     }
