@@ -138,6 +138,7 @@ try {
     Assert-Contains $workflow 'azure/setup-helm@b9e51907a09c216f16ebe8536097933489208112' 'PR validation must install the pinned Helm action.'
     Assert-Contains $workflow 'version: v3.17.4' 'PR validation must install Helm 3.17.4.'
     Assert-Contains $workflow 'Verify pinned toolchain' 'PR validation must assert the installed tool versions.'
+    Assert-Contains $workflow 'terraform -chdir=infra/modules/deployment-executor init -backend=false -input=false -lockfile=readonly' 'PR validation must initialize the deployment executor provider from the committed lockfile before Terraform console tests.'
     Assert-Contains $workflow 'aws-actions/configure-aws-credentials@cabfdba3510de1431bac9dba27511d97497fc100' 'release jobs must pin the AWS credentials action to its reviewed commit.'
     Assert-True (-not $workflow.Contains('aws-actions/configure-aws-credentials@v')) 'release jobs must not use a mutable AWS credentials action tag.'
     Assert-Contains $workflow "github.ref == 'refs/heads/develop'" 'develop must be the only staging release source.'

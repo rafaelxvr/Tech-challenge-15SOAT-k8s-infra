@@ -32,6 +32,8 @@ jobs:
           set -euo pipefail
           test "$(terraform version -json | jq -r '.terraform_version')" = "1.15.8"
           test "$(helm version --template '{{.Version}}')" = "v3.17.4"
+      - name: Initialize deployment executor providers
+        run: terraform -chdir=infra/modules/deployment-executor init -backend=false -input=false -lockfile=readonly
       - name: Verify pipeline contracts
         shell: pwsh
         run: |
