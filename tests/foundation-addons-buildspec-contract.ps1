@@ -46,7 +46,7 @@ locals {
         'C:/Program Files/Git/bin/bash.exe'
     }
     else {
-        $bashCommand = Get-Command bash -CommandType Application -ErrorAction SilentlyContinue
+        $bashCommand = @(Get-Command bash -CommandType Application -ErrorAction SilentlyContinue)[0]
         if ($null -eq $bashCommand) { $null } else { $bashCommand.Source }
     }
     if ([string]::IsNullOrWhiteSpace($shell) -or -not (Test-Path -LiteralPath $shell -PathType Leaf)) {
