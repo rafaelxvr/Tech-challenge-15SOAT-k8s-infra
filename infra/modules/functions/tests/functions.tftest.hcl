@@ -1,9 +1,10 @@
 mock_provider "aws" {}
 
 variables {
-  name        = "oficina-phase3"
-  environment = "staging"
-  aws_region  = "us-east-1"
+  name             = "oficina-phase3"
+  environment      = "staging"
+  aws_region       = "us-east-1"
+  legacy_test_mode = true
   network = {
     private_subnet_ids         = ["subnet-0123456789abcdef0", "subnet-abcdef0123456789"]
     function_security_group_id = "sg-0123456789abcdef0"

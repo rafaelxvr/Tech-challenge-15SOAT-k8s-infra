@@ -15,7 +15,7 @@ locals {
   ])
   app_routes_to_create = {
     for route_key, route in local.app_routes : route_key => route
-    if contains(local.public_app_routes, route_key) || var.authorizer_id != null
+    if contains(local.public_app_routes, route_key) || var.authorizer_handoff != null
   }
   tags = {
     project     = "oficina-phase3"
@@ -75,6 +75,21 @@ resource "aws_apigatewayv2_api" "this" {
 
 }
 
+resource "terraform_data" "authorizer_handoff_guard" {
+  input = var.authorizer_handoff
+
+  lifecycle {
+    precondition {
+      condition = var.authorizer_handoff == null || (
+        var.authorizer_handoff.api_id == aws_apigatewayv2_api.this.id &&
+        var.authorizer_handoff.execution_arn == aws_apigatewayv2_api.this.execution_arn &&
+        var.authorizer_handoff.environment == var.environment
+      )
+      error_message = "authorizer_handoff must identify this exact API ID/execution ARN and environment."
+    }
+  }
+}
+
 resource "aws_apigatewayv2_integration" "backend" {
   api_id                 = aws_apigatewayv2_api.this.id
   integration_type       = "HTTP_PROXY"
@@ -112,7 +127,8 @@ resource "aws_apigatewayv2_route" "app" {
   route_key          = each.key
   target             = "integrations/${each.key == "GET /health" ? aws_apigatewayv2_integration.health.id : aws_apigatewayv2_integration.backend.id}"
   authorization_type = contains(local.public_app_routes, each.key) ? "NONE" : "CUSTOM"
-  authorizer_id      = contains(local.public_app_routes, each.key) ? null : var.authorizer_id
+  authorizer_id      = contains(local.public_app_routes, each.key) ? null : var.authorizer_handoff.authorizer_id
+  depends_on         = [terraform_data.authorizer_handoff_guard]
 }
 
 resource "aws_apigatewayv2_stage" "this" {

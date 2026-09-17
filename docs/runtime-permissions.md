@@ -1,6 +1,6 @@
 # Serverless runtime permissions
 
-`infra/functions/{staging,production}` provisions the one reviewed shaded FUN JAR with four separate Java 17 Lambda entry points. It deliberately receives an immutable S3 object version and both SHA-256 encodings. There is no Function URL, Lambda alias, provisioned concurrency, or reserved concurrency. The account's shared Lambda quota remains 10; notification consumption is bounded by its source mapping instead of reserving account capacity.
+`infra/functions/{staging,production}` and `infra/modules/functions` are retained as retired historical migration references. They fail closed before planning resources, so this repository cannot become a second Lambda, authorizer, queue or DynamoDB owner. The authoritative runtime roots are `oficina-functions/infra/environments/{staging,production}`, which receive an immutable S3 object version and both SHA-256 encodings. There is no Function URL, Lambda alias, provisioned concurrency, or reserved concurrency.
 
 The API Gateway authorizer ID is a distinct API resource identifier, not a Lambda ARN. K8S owns the base HTTP API, VPC-link integrations, APP routes and stage. FUN owns the Lambda REQUEST authorizer, CPF integrations/routes and exact Lambda invoke permissions. FUN exports the authorizer ID after its API handoff; a later K8S apply consumes that ID to bind protected APP routes.
 

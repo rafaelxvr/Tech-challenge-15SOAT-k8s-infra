@@ -71,10 +71,9 @@ $expectedMappings = [ordered]@{
 }
 
 foreach ($root in @('infra/functions/staging', 'infra/functions/production')) {
-    $rootVariables = Get-Content -LiteralPath (Join-Path $repoRoot "$root/variables.tf") -Raw
     $rootMain = Get-Content -LiteralPath (Join-Path $repoRoot "$root/main.tf") -Raw
-    Assert-True ($rootVariables.Contains('variable "foundation_outputs" { type = object({ private_subnet_ids = set(string), function_security_group_id = string }) }')) "$root must accept the exact foundation network object shape."
-    Assert-True ($rootMain.Contains('var.foundation_outputs.private_subnet_ids') -and $rootMain.Contains('var.foundation_outputs.function_security_group_id')) "$root must use both resolved foundation network fields."
+    Assert-True ($rootMain.Contains('Retired legacy K8S Functions root')) "$root must fail closed as a retired legacy owner."
+    Assert-True (-not $rootMain.Contains('module "functions"')) "$root must not instantiate a duplicate Functions owner."
 }
 
 $outputRoots = @{

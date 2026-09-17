@@ -13,7 +13,7 @@ flowchart LR
   Pods --> NR[New Relic collectors and dashboards]
 ```
 
-K8S owns foundation/bootstrap, EKS, API/stage, private routing, namespace policy, stable Service/binding, workload templates and monitoring. It references APP/FUN/DB contracts. Earlier function/runtime definitions still overlap FUN's new I5 source: [review one owner](../../oficina-functions/docs/runtime-permissions.md) before activating FUN. This infrastructure repository exposes no application API, but it does contain the [private deployer Dockerfile](../images/deployer/Dockerfile). Consumers use the [APP API snapshot](../../Tech-challenge-15SOAT/docs/phase-3/api/contracts.md).
+K8S owns foundation/bootstrap, EKS, API/stage, private routing, namespace policy, stable Service/binding, workload templates and monitoring. It references APP/FUN/DB contracts. The former `infra/functions` and `infra/modules/functions` sources are retired and fail closed; FUN is the sole Lambda/runtime owner. This infrastructure repository exposes no application API, but it does contain the [private deployer Dockerfile](../images/deployer/Dockerfile). Consumers use the [APP API snapshot](../../Tech-challenge-15SOAT/docs/phase-3/api/contracts.md).
 
 ```mermaid
 sequenceDiagram

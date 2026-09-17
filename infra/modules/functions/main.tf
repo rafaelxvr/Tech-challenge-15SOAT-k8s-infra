@@ -128,6 +128,15 @@ locals {
   }
 }
 
+resource "terraform_data" "retired_owner_guard" {
+  lifecycle {
+    precondition {
+      condition     = var.legacy_test_mode
+      error_message = "Retired legacy K8S Functions module: use oficina-functions/infra as the sole runtime owner."
+    }
+  }
+}
+
 resource "aws_sqs_queue" "notification_dlq" {
   name                        = "${local.prefix}-notifications-dlq.fifo"
   fifo_queue                  = true

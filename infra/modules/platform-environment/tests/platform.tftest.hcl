@@ -1,5 +1,13 @@
 mock_provider "aws" {}
 
+override_resource {
+  target = aws_apigatewayv2_api.this
+  values = {
+    id            = "abc123"
+    execution_arn = "arn:aws:execute-api:us-east-1:123456789012:abc123"
+  }
+}
+
 run "private_environment_contract" {
   command = plan
 
@@ -7,6 +15,7 @@ run "private_environment_contract" {
     name                   = "oficina-phase3"
     environment            = "staging"
     aws_region             = "us-east-1"
+    account_id             = "123456789012"
     vpc_id                 = "vpc-12345678"
     cluster_name           = "oficina"
     backend_listener_arn   = "arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/oficina/1234567890abcdef/abcdef1234567890"
@@ -14,8 +23,13 @@ run "private_environment_contract" {
     listener_port          = 8080
     namespace              = "oficina-staging"
     deployer_principal_arn = "arn:aws:iam::123456789012:role/oficina-k8s-staging-deploy"
-    authorizer_id          = "auth123"
-    cors_allow_origins     = ["https://staging.example.invalid"]
+    authorizer_handoff = {
+      api_id        = "abc123"
+      execution_arn = "arn:aws:execute-api:us-east-1:123456789012:abc123"
+      authorizer_id = "auth123"
+      environment   = "staging"
+    }
+    cors_allow_origins = ["https://staging.example.invalid"]
   }
 
   assert {
@@ -43,15 +57,15 @@ run "private_environment_contract" {
     error_message = "Gateway CORS, metrics and safe short-lived access logs must remain bounded."
   }
   assert {
-    condition     = aws_apigatewayv2_route.app["GET /api/admin/relatorios/ordens"].authorizer_id == var.authorizer_id
+    condition     = aws_apigatewayv2_route.app["GET /api/admin/relatorios/ordens"].authorizer_id == var.authorizer_handoff.authorizer_id
     error_message = "Protected APP routes must bind the authorizer supplied by the FUN handoff."
   }
 }
 
-run "invalid_authorizer_id_is_rejected" {
+run "cross_environment_or_api_mismatch_is_rejected" {
   command = plan
 
-  expect_failures = [var.authorizer_id]
+  expect_failures = [var.authorizer_handoff]
 
   variables {
     name                   = "oficina-phase3"
@@ -64,8 +78,14 @@ run "invalid_authorizer_id_is_rejected" {
     listener_port          = 8080
     namespace              = "oficina-staging"
     deployer_principal_arn = "arn:aws:iam::123456789012:role/oficina-k8s-staging-deploy"
-    authorizer_id          = "not-valid!"
-    cors_allow_origins     = ["https://staging.example.invalid"]
+    account_id             = "123456789012"
+    authorizer_handoff = {
+      api_id        = "different123"
+      execution_arn = "arn:aws:execute-api:us-east-1:123456789012:abc123"
+      authorizer_id = "auth123"
+      environment   = "staging"
+    }
+    cors_allow_origins = ["https://staging.example.invalid"]
   }
 }
 
@@ -76,6 +96,7 @@ run "initial_apply_has_only_safe_public_app_routes" {
     name                   = "oficina-phase3"
     environment            = "staging"
     aws_region             = "us-east-1"
+    account_id             = "123456789012"
     vpc_id                 = "vpc-12345678"
     cluster_name           = "oficina"
     backend_listener_arn   = "arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/oficina/1234567890abcdef/abcdef1234567890"

@@ -31,14 +31,15 @@ foreach ($resolverSetting in @('DATABASE_SECRET_ARN', 'CUSTOMER_SIGNING_SECRET_A
 }
 Assert-Contains $variables 'var.approved_secret_count == 16' 'The approved 16-secret inventory must remain enforced.'
 Assert-Contains $module 'local.planned_monthly_gb_seconds <= 200000' 'The 200,000 GB-second study envelope must remain enforced.'
-Assert-Contains $platformVariables 'variable "authorizer_id"' 'The platform must accept the reviewed FUN authorizer ID as a handoff input.'
+Assert-Contains $platformVariables 'variable "authorizer_handoff"' 'The platform must accept the reviewed FUN API/authorizer handoff object.'
 Assert-Contains $foundation 'resource "aws_security_group" "lambda"' 'Foundation must own the dedicated Lambda security group.'
 Assert-Contains $foundation 'resource "aws_security_group" "rds"' 'Foundation must own the reviewed RDS security group.'
 Assert-Contains $foundation 'resource "aws_vpc_security_group_ingress_rule" "database_from_functions"' 'Foundation database access must name the Lambda group as its approved source.'
 Assert-Contains $foundation 'referenced_security_group_id = aws_security_group.lambda.id' 'The RDS group must approve only the foundation Lambda group on PostgreSQL.'
 foreach ($root in @('infra/functions/staging/main.tf', 'infra/functions/production/main.tf')) {
     $rootSource = Get-Content -LiteralPath (Join-Path $repoRoot $root) -Raw
-    Assert-Contains $rootSource 'var.foundation_outputs.function_security_group_id' 'Functions roots must consume the exported foundation Lambda security group.'
+    Assert-Contains $rootSource 'Retired legacy K8S Functions root' 'Legacy K8S Functions roots must fail closed.'
+    if ($rootSource -match 'module\s+"functions"') { throw "Retired root $rootSource must not instantiate a duplicate Functions owner." }
 }
 if ($platform -match 'aws_apigatewayv2_authorizer|aws_lambda_permission') { throw 'The K8S platform must not duplicate FUN authorizer or Lambda invoke ownership.' }
 foreach ($rootOutput in @('infra/functions/staging/outputs.tf', 'infra/functions/production/outputs.tf')) {

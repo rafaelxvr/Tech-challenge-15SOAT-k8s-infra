@@ -19,6 +19,13 @@ variable "aws_region" {
     error_message = "The reviewed platform is limited to us-east-1."
   }
 }
+variable "account_id" {
+  type = string
+  validation {
+    condition     = can(regex("^[0-9]{12}$", var.account_id))
+    error_message = "account_id must be the reviewed 12-digit deployment account."
+  }
+}
 variable "vpc_id" { type = string }
 variable "cluster_name" { type = string }
 variable "backend_listener_arn" { type = string }
@@ -45,14 +52,24 @@ variable "namespace" {
     error_message = "namespace must match the isolated environment name."
   }
 }
-variable "authorizer_id" {
-  type        = string
+variable "authorizer_handoff" {
+  type = object({
+    api_id        = string
+    execution_arn = string
+    authorizer_id = string
+    environment   = string
+  })
   default     = null
   nullable    = true
-  description = "Optional API Gateway authorizer ID from the FUN handoff. Protected APP routes are created only when this is supplied."
+  description = "Optional reviewed FUN handoff. Protected APP routes are created only when this exact API/environment binding is supplied."
   validation {
-    condition     = var.authorizer_id == null || can(regex("^[A-Za-z0-9]+$", var.authorizer_id))
-    error_message = "authorizer_id must be the reviewed API Gateway authorizer ID from the FUN handoff."
+    condition = var.authorizer_handoff == null || (
+      can(regex("^[a-z0-9]+$", var.authorizer_handoff.api_id)) &&
+      var.authorizer_handoff.execution_arn == "arn:aws:execute-api:${var.aws_region}:${var.account_id}:${var.authorizer_handoff.api_id}" &&
+      can(regex("^[A-Za-z0-9]+$", var.authorizer_handoff.authorizer_id)) &&
+      var.authorizer_handoff.environment == var.environment
+    )
+    error_message = "authorizer_handoff must contain the reviewed same-account API ID, execution ARN, authorizer ID and environment."
   }
 }
 variable "cors_allow_origins" {

@@ -6,6 +6,12 @@ variable "name" {
   }
 }
 
+variable "legacy_test_mode" {
+  type        = bool
+  default     = false
+  description = "Test-only escape hatch for inspecting the retired module graph; never set in a deployment root."
+}
+
 variable "environment" {
   type = string
   validation {
