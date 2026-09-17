@@ -9,17 +9,13 @@ locals {
     for route_key, route in local.allowed_routes : route_key => route
     if route.owner == "APP"
   }
-  function_routes = {
-    "POST /api/auth/cpf/desafios"  = "challenge"
-    "POST /api/auth/cpf/verificar" = "verification"
-  }
   public_app_routes = toset([
     "GET /health",
     "POST /api/auth/login",
   ])
-  function_arns = {
-    challenge    = var.function_arns.challenge
-    verification = var.function_arns.verification
+  app_routes_to_create = {
+    for route_key, route in local.app_routes : route_key => route
+    if contains(local.public_app_routes, route_key) || var.authorizer_id != null
   }
   tags = {
     project     = "oficina-phase3"
@@ -77,15 +73,6 @@ resource "aws_apigatewayv2_api" "this" {
   }
   tags = local.tags
 
-  lifecycle {
-    precondition {
-      condition = alltrue([
-        for arn in values(var.function_arns) :
-        can(regex("^arn:aws:lambda:${var.aws_region}:[0-9]{12}:function:oficina-${var.environment}-", arn))
-      ])
-      error_message = "Each authorizer and CPF function must belong to the same reviewed environment as this HTTP API."
-    }
-  }
 }
 
 resource "aws_apigatewayv2_integration" "backend" {
@@ -116,44 +103,16 @@ resource "aws_apigatewayv2_integration" "health" {
   }
 }
 
-resource "aws_apigatewayv2_integration" "function" {
-  for_each               = local.function_arns
-  api_id                 = aws_apigatewayv2_api.this.id
-  integration_type       = "AWS_PROXY"
-  integration_method     = "POST"
-  integration_uri        = "arn:aws:apigateway:${var.aws_region}:lambda:path/2015-03-31/functions/${each.value}/invocations"
-  payload_format_version = "2.0"
-}
-
-resource "aws_apigatewayv2_authorizer" "request" {
-  api_id                            = aws_apigatewayv2_api.this.id
-  name                              = "${local.name}-request-authorizer"
-  authorizer_type                   = "REQUEST"
-  authorizer_uri                    = "arn:aws:apigateway:${var.aws_region}:lambda:path/2015-03-31/functions/${var.function_arns.authorizer}/invocations"
-  authorizer_payload_format_version = "2.0"
-  enable_simple_responses           = true
-  authorizer_result_ttl_in_seconds  = 0
-}
-
 # There is deliberately no catch-all route. The v2 default decision is DENY,
 # and every route published here is an explicit immutable-contract allow.
 resource "aws_apigatewayv2_route" "app" {
-  for_each = local.app_routes
+  for_each = local.app_routes_to_create
 
   api_id             = aws_apigatewayv2_api.this.id
   route_key          = each.key
   target             = "integrations/${each.key == "GET /health" ? aws_apigatewayv2_integration.health.id : aws_apigatewayv2_integration.backend.id}"
   authorization_type = contains(local.public_app_routes, each.key) ? "NONE" : "CUSTOM"
-  authorizer_id      = contains(local.public_app_routes, each.key) ? null : aws_apigatewayv2_authorizer.request.id
-}
-
-resource "aws_apigatewayv2_route" "function" {
-  for_each = local.function_routes
-
-  api_id             = aws_apigatewayv2_api.this.id
-  route_key          = each.key
-  target             = "integrations/${aws_apigatewayv2_integration.function[each.value].id}"
-  authorization_type = "NONE"
+  authorizer_id      = contains(local.public_app_routes, each.key) ? null : var.authorizer_id
 }
 
 resource "aws_apigatewayv2_stage" "this" {
@@ -183,24 +142,6 @@ resource "aws_cloudwatch_log_group" "gateway" {
   name              = "/aws/apigateway/${local.name}"
   retention_in_days = 1
   tags              = local.tags
-}
-
-resource "aws_lambda_permission" "authorizer" {
-  statement_id  = "AllowHttpApiAuthorizer-${var.environment}"
-  action        = "lambda:InvokeFunction"
-  function_name = var.function_arns.authorizer
-  principal     = "apigateway.amazonaws.com"
-  source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/authorizers/${aws_apigatewayv2_authorizer.request.id}"
-}
-
-resource "aws_lambda_permission" "auth_route" {
-  for_each = local.function_routes
-
-  statement_id  = "AllowHttpApi${title(each.value)}-${var.environment}"
-  action        = "lambda:InvokeFunction"
-  function_name = local.function_arns[each.value]
-  principal     = "apigateway.amazonaws.com"
-  source_arn    = "${aws_apigatewayv2_api.this.execution_arn}/*/${split(" ", each.key)[0]}${split(" ", each.key)[1]}"
 }
 
 # This grants only Kubernetes API authentication. The rendered namespace Role

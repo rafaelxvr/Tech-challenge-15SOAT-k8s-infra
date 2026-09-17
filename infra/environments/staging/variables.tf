@@ -16,15 +16,15 @@ variable "foundation_outputs" {
   })
   description = "The allowlisted foundation outputs.v1.json values resolved from the versioned foundation receipt by the verified deployment workflow."
 }
-variable "functions_outputs" {
-  type = object({
-    functionArns = object({
-      authorizer   = string
-      challenge    = string
-      verification = string
-    })
-  })
-  description = "The allowlisted oficina-functions outputs.v1.json values. Runtime configuration and secrets stay in the function state."
+variable "authorizer_id" {
+  type        = string
+  default     = null
+  nullable    = true
+  description = "Optional authorizer ID from the FUN output receipt. Omit for the first platform apply; protected routes remain absent until supplied."
+  validation {
+    condition     = var.authorizer_id == null || can(regex("^[A-Za-z0-9]+$", var.authorizer_id))
+    error_message = "authorizer_id must be the reviewed API Gateway authorizer ID from FUN."
+  }
 }
 variable "gateway_allowed_origins" {
   type        = set(string)

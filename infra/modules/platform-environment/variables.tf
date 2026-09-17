@@ -45,19 +45,14 @@ variable "namespace" {
     error_message = "namespace must match the isolated environment name."
   }
 }
-variable "function_arns" {
-  type = object({
-    authorizer   = string
-    challenge    = string
-    verification = string
-  })
-  description = "Allowlisted functionArns values from the functions outputs.v1.json artifact. These are function ARNs, not URLs."
+variable "authorizer_id" {
+  type        = string
+  default     = null
+  nullable    = true
+  description = "Optional API Gateway authorizer ID from the FUN handoff. Protected APP routes are created only when this is supplied."
   validation {
-    condition = alltrue([
-      for arn in values(var.function_arns) :
-      can(regex("^arn:aws:lambda:us-east-1:[0-9]{12}:function:[A-Za-z0-9_-]+(?::[A-Za-z0-9_-]+)?$", arn))
-    ])
-    error_message = "function_arns must contain reviewed us-east-1 Lambda function ARNs; function URLs are not accepted."
+    condition     = var.authorizer_id == null || can(regex("^[A-Za-z0-9]+$", var.authorizer_id))
+    error_message = "authorizer_id must be the reviewed API Gateway authorizer ID from the FUN handoff."
   }
 }
 variable "cors_allow_origins" {

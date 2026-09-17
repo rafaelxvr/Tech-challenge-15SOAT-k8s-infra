@@ -2,7 +2,7 @@
 
 `infra/functions/{staging,production}` provisions the one reviewed shaded FUN JAR with four separate Java 17 Lambda entry points. It deliberately receives an immutable S3 object version and both SHA-256 encodings. There is no Function URL, Lambda alias, provisioned concurrency, or reserved concurrency. The account's shared Lambda quota remains 10; notification consumption is bounded by its source mapping instead of reserving account capacity.
 
-`functionArns.authorizer` is a Lambda ARN. It is not an API Gateway authorizer ID. The I4 platform state remains the only owner and exporter of the actual HTTP API authorizer ID.
+The API Gateway authorizer ID is a distinct API resource identifier, not a Lambda ARN. K8S owns the base HTTP API, VPC-link integrations, APP routes and stage. FUN owns the Lambda REQUEST authorizer, CPF integrations/routes and exact Lambda invoke permissions. FUN exports the authorizer ID after its API handoff; a later K8S apply consumes that ID to bind protected APP routes.
 
 | Function | Handler | Runtime boundary | IAM boundary |
 | --- | --- | --- | --- |
@@ -21,7 +21,7 @@ The challenge and delivery ledgers are separate encrypted DynamoDB tables, each 
 
 ## Gateway ownership boundary
 
-The platform environment state created in I4 remains the **single Terraform owner** for HTTP API routes, the REQUEST authorizer, and API Gateway invoke permissions. It consumes `functionArns` from this state. This module creates no `aws_apigatewayv2_*` resource and no second `aws_lambda_permission`, preventing a cross-state duplicate route or permission owner.
+The K8S platform state is the single owner for the base API, VPC-link integrations, APP target group/routes and stage. Its first apply omits protected APP routes when `authorizer_id` is null. FUN receives the K8S API ID/execution ARN and owns only the REQUEST authorizer, the two public CPF routes and their exact invoke permissions. A reviewed FUN output receipt then supplies `authorizer_id` for the second K8S apply. No state may create a duplicate API, route or Lambda permission.
 
 I4 sets the HTTP API authorizer to payload format 2.0, simple responses, result TTL zero, and no `identity_sources`. That permits F4's explicit `{"errorMessage":"Unauthorized"}` response for absent or invalid bearer credentials while an authenticated, forbidden route returns `{"isAuthorized":false}`. It begins with rate one request/second and burst two. R4 must benchmark real gateway behavior and adjust only within account and runtime limits.
 

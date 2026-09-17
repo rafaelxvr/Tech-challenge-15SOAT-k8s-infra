@@ -7,6 +7,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $module = Get-Content -LiteralPath (Join-Path $repoRoot 'infra/modules/functions/main.tf') -Raw
 $variables = Get-Content -LiteralPath (Join-Path $repoRoot 'infra/modules/functions/variables.tf') -Raw
 $platform = Get-Content -LiteralPath (Join-Path $repoRoot 'infra/modules/platform-environment/main.tf') -Raw
+$platformVariables = Get-Content -LiteralPath (Join-Path $repoRoot 'infra/modules/platform-environment/variables.tf') -Raw
 $foundation = Get-Content -LiteralPath (Join-Path $repoRoot 'infra/foundation/main.tf') -Raw
 
 function Assert-Contains([string]$Text, [string]$Expected, [string]$Message) {
@@ -30,8 +31,7 @@ foreach ($resolverSetting in @('DATABASE_SECRET_ARN', 'CUSTOMER_SIGNING_SECRET_A
 }
 Assert-Contains $variables 'var.approved_secret_count == 16' 'The approved 16-secret inventory must remain enforced.'
 Assert-Contains $module 'local.planned_monthly_gb_seconds <= 200000' 'The 200,000 GB-second study envelope must remain enforced.'
-Assert-Contains $platform 'authorizer_result_ttl_in_seconds  = 0' 'The single platform gateway owner must retain no authorizer cache.'
-Assert-Contains $platform 'enable_simple_responses           = true' 'The single platform gateway owner must retain v2 simple responses.'
+Assert-Contains $platformVariables 'variable "authorizer_id"' 'The platform must accept the reviewed FUN authorizer ID as a handoff input.'
 Assert-Contains $foundation 'resource "aws_security_group" "lambda"' 'Foundation must own the dedicated Lambda security group.'
 Assert-Contains $foundation 'resource "aws_security_group" "rds"' 'Foundation must own the reviewed RDS security group.'
 Assert-Contains $foundation 'resource "aws_vpc_security_group_ingress_rule" "database_from_functions"' 'Foundation database access must name the Lambda group as its approved source.'
@@ -40,7 +40,7 @@ foreach ($root in @('infra/functions/staging/main.tf', 'infra/functions/producti
     $rootSource = Get-Content -LiteralPath (Join-Path $repoRoot $root) -Raw
     Assert-Contains $rootSource 'var.foundation_outputs.function_security_group_id' 'Functions roots must consume the exported foundation Lambda security group.'
 }
-if ($platform -match 'identity_sources\s*=') { throw 'The HTTP API authorizer must not configure identity sources.' }
+if ($platform -match 'aws_apigatewayv2_authorizer|aws_lambda_permission') { throw 'The K8S platform must not duplicate FUN authorizer or Lambda invoke ownership.' }
 foreach ($rootOutput in @('infra/functions/staging/outputs.tf', 'infra/functions/production/outputs.tf')) {
     $rootSource = Get-Content -LiteralPath (Join-Path $repoRoot $rootOutput) -Raw
     if ($rootSource -match 'authorizerId') { throw "Only I4 may export an API Gateway authorizerId; $rootOutput incorrectly exports one." }
@@ -49,4 +49,4 @@ if ($module -match 'aws_apigatewayv2_|aws_lambda_function_url|reserved_concurren
     throw 'Functions state must not duplicate gateway routes, expose a Function URL, reserve concurrency, or put secret values in Terraform.'
 }
 
-Write-Output 'PASS: I5 enforces immutable function packaging, bounded FIFO delivery, private least privilege, secret inventory, tracing, and the single gateway owner.'
+Write-Output 'PASS: I5 enforces immutable function packaging, bounded FIFO delivery, private least privilege, secret inventory, tracing, and split gateway ownership.'

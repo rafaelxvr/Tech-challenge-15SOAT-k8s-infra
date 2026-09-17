@@ -2,6 +2,7 @@ output "schema_version" { value = 1 }
 output "environment" { value = "production" }
 output "api_id" { value = module.platform.api_id }
 output "api_endpoint" { value = module.platform.api_endpoint }
+output "api_execution_arn" { value = module.platform.api_execution_arn }
 output "backend_integration_id" { value = module.platform.backend_integration_id }
 output "health_integration_id" { value = module.platform.health_integration_id }
 output "target_group_arn" { value = module.platform.target_group_arn }

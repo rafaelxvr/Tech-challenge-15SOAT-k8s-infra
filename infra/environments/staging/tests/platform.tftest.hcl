@@ -13,13 +13,7 @@ run "staging_binds_only_staging_platform_contract" {
       backend_listener_arns = { staging = "arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/oficina/1234567890abcdef/abcdef1234567890" }
       codebuild_projects    = { k8s_staging = { roleArn = "arn:aws:iam::123456789012:role/oficina-k8s-staging-deploy" } }
     }
-    functions_outputs = {
-      functionArns = {
-        authorizer   = "arn:aws:lambda:us-east-1:123456789012:function:oficina-staging-authorizer"
-        challenge    = "arn:aws:lambda:us-east-1:123456789012:function:oficina-staging-challenge"
-        verification = "arn:aws:lambda:us-east-1:123456789012:function:oficina-staging-verification"
-      }
-    }
+    authorizer_id           = "auth123"
     gateway_allowed_origins = ["https://staging.example.invalid"]
   }
 
