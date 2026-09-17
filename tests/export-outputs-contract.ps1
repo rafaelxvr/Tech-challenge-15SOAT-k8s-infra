@@ -36,6 +36,13 @@ try {
         }
     }
     finally { Pop-Location }
+    $firstOutput = @($outputs.Keys)[0]
+    $outputs[$firstOutput].sensitive = $true
+    $raw = Join-Path $temp 'sensitive.json'
+    $outputs | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $raw
+    $rejected = $false
+    try { & (Join-Path $repoRoot 'scripts/export-outputs.ps1') -TerraformOutputFile $raw -Scope environment -Environment staging -SourceCommit ('a' * 40) -OutputFile (Join-Path $temp 'blocked.json') | Out-Null } catch { $rejected = $true }
+    if (-not $rejected) { throw 'An allowlisted field marked sensitive must never be published.' }
     Write-Output 'Output export contract: PASS (real Terraform; absolute and relative directories containing spaces).'
 }
 finally {

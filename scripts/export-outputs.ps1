@@ -59,6 +59,8 @@ foreach ($mapping in $scopeProperty.Value.PSObject.Properties) {
     # effort subset. Publishing a partial document would let a later trusted
     # consumer map only the fields it happens to use and hide a broken root.
     if ($null -eq $candidate -or $null -eq $candidate.Value) { Fail "Terraform output is missing allowlisted '$publicField'." }
+    $sensitive = $candidate.Value.PSObject.Properties['sensitive']
+    if ($null -ne $sensitive -and $sensitive.Value -ne $false) { Fail "Terraform output '$publicField' is marked sensitive." }
     $valueProperty = $candidate.Value.PSObject.Properties['value']
     $value = if ($null -eq $valueProperty) { $candidate.Value } else { $valueProperty.Value }
     if ($null -eq $value) { Fail "Terraform output '$terraformField' has no value for '$publicField'." }

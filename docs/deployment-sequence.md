@@ -18,3 +18,13 @@ terraform fmt -check -recursive
 ```
 
 The eight real repository/environment launches, branch-protection screenshots, environment-policy evidence, cloud-window evidence and deployment outcomes are R4 acceptance artifacts. Do not run `terraform apply`, set repository visibility, alter GitHub permissions, or start a deployment until the reviewed artifacts and explicit authorization are available.
+
+## I7 source hardening
+
+Before any OIDC request, each deployment job independently checks its exact push/branch/environment context with `check-workflow-context.ps1`. PRs, tags, manual dispatch and legacy master cannot pass that guard. Non-cancelling environment concurrency, named S3 object versions, checksum bootstrap, terminal CodeBuild polling and staging promotion receipt verification remain required.
+
+`package-source.ps1` resolves the reviewed commit to its tree and uses a fixed archive timestamp. Tests prove that an unchanged merge preserves artifact bytes and a changed tree produces a different digest. Production still requires the successful immutable staging receipt; deterministic packaging does not waive that proof. The package helper never archives the mutable working directory.
+
+Record actual repository visibility, immutable OIDC subject, branch ruleset/protection IDs, required checks/reviews and restricted bypass, plus develop-only staging and main-only production environment policies during external setup. Source changes neither configure those protections nor authorize production. The APP/FUN cloud adapters remain separately fail-closed pending their documented migration/ownership and execution prerequisites; I7 across all four owners is therefore partial, not evidence of eight successful cloud deployments.
+
+Run `tests/source-package-contract.ps1`, `tests/workflow-context-contract.ps1` and the existing pipeline contract suite. Output tests reject sensitive allowlisted fields in addition to filtering unknown credentials/state fields. No AWS API call or cloud deployment is needed for these local proofs.

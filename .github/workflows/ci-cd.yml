@@ -20,6 +20,8 @@ jobs:
       - name: Verify pipeline contracts
         shell: pwsh
         run: |
+          ./tests/workflow-context-contract.ps1
+          ./tests/source-package-contract.ps1
           ./tests/pipeline-contract.ps1
           ./tests/release-readiness-contract.ps1
           ./tests/gateway-contract-tests.ps1
@@ -62,6 +64,9 @@ jobs:
       TERRAFORM_TFVARS_JSON: ${{ secrets.TERRAFORM_TFVARS_JSON }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Validate branch and event before requesting identity
+        shell: pwsh
+        run: ./scripts/check-workflow-context.ps1 -Environment $env:DEPLOY_ENVIRONMENT
       - name: Require reviewed environment configuration
         shell: bash
         run: |
@@ -79,8 +84,7 @@ jobs:
       - name: Create immutable release manifest
         shell: pwsh
         run: |
-          git archive --format=zip --output "$env:RUNNER_TEMP/bundle.zip" $env:GITHUB_SHA
-          $sourceSha = (Get-FileHash -LiteralPath "$env:RUNNER_TEMP/bundle.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+          $sourceSha = ./scripts/package-source.ps1 -SourceCommit $env:GITHUB_SHA -OutputFile "$env:RUNNER_TEMP/bundle.zip"
           $manifest = [ordered]@{ schemaVersion = 1; environment = $env:DEPLOY_ENVIRONMENT; sourceCommit = $env:GITHUB_SHA; artifactSha256 = $sourceSha; deployerImageDigest = "sha256:$env:DEPLOYER_IMAGE_DIGEST"; contractVersion = 'phase3-v2'; migrationVersion = 'platform-v1'; promotedFromStaging = $false }
           $manifest | ConvertTo-Json | Set-Content -LiteralPath "$env:RUNNER_TEMP/release-manifest.json" -NoNewline
           "SOURCE_SHA256=$sourceSha" >> $env:GITHUB_ENV
@@ -124,6 +128,9 @@ jobs:
       TERRAFORM_TFVARS_JSON: ${{ secrets.TERRAFORM_TFVARS_JSON }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Validate branch and event before requesting identity
+        shell: pwsh
+        run: ./scripts/check-workflow-context.ps1 -Environment $env:DEPLOY_ENVIRONMENT
       - name: Require reviewed environment configuration
         shell: bash
         run: |
@@ -141,8 +148,7 @@ jobs:
       - name: Calculate production artifact digest
         shell: pwsh
         run: |
-          git archive --format=zip --output "$env:RUNNER_TEMP/bundle.zip" $env:GITHUB_SHA
-          $sourceSha = (Get-FileHash -LiteralPath "$env:RUNNER_TEMP/bundle.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+          $sourceSha = ./scripts/package-source.ps1 -SourceCommit $env:GITHUB_SHA -OutputFile "$env:RUNNER_TEMP/bundle.zip"
           "SOURCE_SHA256=$sourceSha" >> $env:GITHUB_ENV
       - name: Verify named successful staging release
         shell: pwsh
@@ -185,6 +191,9 @@ jobs:
       CLOUD_WINDOW_EVIDENCE_JSON: ${{ secrets.CLOUD_WINDOW_EVIDENCE_JSON }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Validate branch and event before requesting identity
+        shell: pwsh
+        run: ./scripts/check-workflow-context.ps1 -Environment staging
       - name: Require reviewed staging configuration
         shell: bash
         run: |
