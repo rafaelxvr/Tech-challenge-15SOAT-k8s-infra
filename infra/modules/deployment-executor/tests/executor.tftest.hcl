@@ -265,8 +265,11 @@ run "database_permissions_reject_broad_and_cross_environment_scope" {
       ]) &&
       alltrue([for statement in jsondecode(local.executor_permission_profile_documents["db_${environment}"]).statements :
         statement.Condition.StringEquals["aws:RequestedRegion"] == "us-east-1" &&
-        toset(statement.Action) == toset(["ec2:DescribeVpcs", "ec2:DescribeSubnets", "ec2:DescribeSecurityGroups", "ec2:DescribeSecurityGroupRules", "rds:DescribeDBEngineVersions", "rds:DescribeOrderableDBInstanceOptions"])
+        toset(statement.Action) == toset(["ec2:DescribeVpcs", "ec2:DescribeSubnets", "ec2:DescribeSecurityGroups", "ec2:DescribeSecurityGroupRules", "rds:DescribeDBEngineVersions", "rds:DescribeOrderableDBInstanceOptions", "rds:DescribeDBInstances"])
         if statement.Resource == "*"
+      ]) &&
+      alltrue([for statement in jsondecode(local.executor_permission_profile_documents["db_${environment}"]).statements :
+        !contains(statement.Action, "rds:DescribeDBInstances") if statement.Sid == "ManageNamedDatabaseResources"
       ])
     ])
     error_message = "DB state deletion, broad catalog actions and unconditional shared-lock overwrite must remain unauthorized."

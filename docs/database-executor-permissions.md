@@ -16,7 +16,7 @@ The deployment-executor module supplies separate staging and production profiles
 
 ## Necessary broad resource scopes
 
-The DB profile's sole `Resource: "*"` statement contains EC2 DescribeVpcs, DescribeSubnets, DescribeSecurityGroups and DescribeSecurityGroupRules, plus RDS DescribeDBEngineVersions and DescribeOrderableDBInstanceOptions. These APIs have no resource-level authorization; the statement restricts `aws:RequestedRegion`. Resource-capable RDS Describe/List calls retain exact named ARNs.
+The DB profile's sole `Resource: "*"` statement contains EC2 DescribeVpcs, DescribeSubnets, DescribeSecurityGroups and DescribeSecurityGroupRules, plus RDS DescribeDBEngineVersions, DescribeOrderableDBInstanceOptions and DescribeDBInstances. The provider calls DescribeDBInstances without an identifier during discovery, so that action needs account-wide instance visibility in the reviewed region even though an identifier-specific call supports a named ARN. The other listed catalog/network APIs have no resource-level authorization. The statement retains `aws:RequestedRegion`; all other resource-capable RDS Describe/List calls and lifecycle mutations remain on exact named ARNs. Tests require this precise action split and reject `rds:*`.
 
 The common CodeBuild VPC lifecycle statement and ECR GetAuthorizationToken remain unchanged. Their existing AWS-required `Resource: "*"` scopes support execution rather than granting DB ownership. The separate ENI permission remains CodeBuild-service and private-subnet restricted.
 

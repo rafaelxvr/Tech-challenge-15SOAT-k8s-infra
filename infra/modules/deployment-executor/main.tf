@@ -71,10 +71,10 @@ locals {
       profile = "database-${deployment.environment}"
       statements = [
         {
-          # These catalog/network APIs have no resource-level authorization.
+          # Catalog/network discovery includes the provider's unfiltered DescribeDBInstances call.
           Sid       = "DescribeDatabaseCatalogAndNetwork"
           Effect    = "Allow"
-          Action    = ["ec2:DescribeVpcs", "ec2:DescribeSubnets", "ec2:DescribeSecurityGroups", "ec2:DescribeSecurityGroupRules", "rds:DescribeDBEngineVersions", "rds:DescribeOrderableDBInstanceOptions"]
+          Action    = ["ec2:DescribeVpcs", "ec2:DescribeSubnets", "ec2:DescribeSecurityGroups", "ec2:DescribeSecurityGroupRules", "rds:DescribeDBEngineVersions", "rds:DescribeOrderableDBInstanceOptions", "rds:DescribeDBInstances"]
           Resource  = "*"
           Condition = { StringEquals = { "aws:RequestedRegion" = var.aws_region } }
         },
@@ -92,7 +92,7 @@ locals {
           # Resource-capable Describe/List actions remain bound to exact names.
           Sid       = "ManageNamedDatabaseResources"
           Effect    = "Allow"
-          Action    = ["rds:DescribeDBInstances", "rds:ModifyDBInstance", "rds:DeleteDBInstance", "rds:RebootDBInstance", "rds:DescribeDBSubnetGroups", "rds:ModifyDBSubnetGroup", "rds:DeleteDBSubnetGroup", "rds:DescribeDBParameterGroups", "rds:DescribeDBParameters", "rds:ModifyDBParameterGroup", "rds:ResetDBParameterGroup", "rds:DeleteDBParameterGroup", "rds:ListTagsForResource", "rds:AddTagsToResource", "rds:RemoveTagsFromResource"]
+          Action    = ["rds:ModifyDBInstance", "rds:DeleteDBInstance", "rds:RebootDBInstance", "rds:DescribeDBSubnetGroups", "rds:ModifyDBSubnetGroup", "rds:DeleteDBSubnetGroup", "rds:DescribeDBParameterGroups", "rds:DescribeDBParameters", "rds:ModifyDBParameterGroup", "rds:ResetDBParameterGroup", "rds:DeleteDBParameterGroup", "rds:ListTagsForResource", "rds:AddTagsToResource", "rds:RemoveTagsFromResource"]
           Resource  = [for type in ["db", "subgrp", "pg"] : "arn:aws:rds:${var.aws_region}:${var.account_id}:${type}:${var.name}-${deployment.environment}-postgres"]
           Condition = { BoolIfExists = { "rds:ManageMasterUserPassword" = "true" } }
         },
