@@ -46,7 +46,22 @@ function Release-Offline {
 }
 
 if ($Offline) {
-    if ($Action -eq 'Acquire') { Acquire-Offline } else { Release-Offline }
+    # Serialize the offline read/compare/delete and acquisition across processes.
+    # No guard file is deleted/recreated, so a successor cannot bypass the guard.
+    $lockPath = [System.IO.Path]::GetFullPath((Get-OfflinePath))
+    if ($IsWindows) { $lockPath = $lockPath.ToUpperInvariant() }
+    $pathHash = [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($lockPath)))
+    $mutex = [System.Threading.Mutex]::new($false, "oficina-deployment-lock-$pathHash")
+    $acquired = $false
+    try {
+        $acquired = $mutex.WaitOne(0)
+        if (-not $acquired) { Fail 'a concurrent offline lock operation is active.' }
+        if ($Action -eq 'Acquire') { Acquire-Offline } else { Release-Offline }
+    }
+    finally {
+        if ($acquired) { $mutex.ReleaseMutex() }
+        $mutex.Dispose()
+    }
     Write-Output "Shared deployment lock $Action succeeded."
     exit 0
 }
@@ -63,8 +78,13 @@ try {
         if ($LASTEXITCODE -ne 0) { Fail 'shared deployment lock does not exist.' }
         $metadata = $head | ConvertFrom-Json
         if ($metadata.Metadata.owner -cne $OwnerToken) { Fail 'lock owner mismatch; an active lock was not removed.' }
-        & aws s3api delete-object --bucket $StateBucket --key $Key --output json 2>$null | Out-Null
-        if ($LASTEXITCODE -ne 0) { Fail 'owned shared deployment lock could not be released.' }
+        $etag = $metadata.PSObject.Properties['ETag']
+        if ($null -eq $etag -or $etag.Value -isnot [string] -or $etag.Value -cnotmatch '\A"[^"*\r\n]+"\z') { Fail 'lock lookup did not return an exact ETag; release was not attempted.' }
+        # Owner metadata and ETag come from the same HEAD. The payload contains
+        # its unique owner token, so a successor has different bytes and ETag.
+        # S3 compares atomically; never retry without this condition on 412/409.
+        & aws s3api delete-object --bucket $StateBucket --key $Key --if-match $etag.Value --output json 2>$null | Out-Null
+        if ($LASTEXITCODE -ne 0) { Fail 'conditional lock release failed; a replacement lock was not removed.' }
     }
 }
 finally {
