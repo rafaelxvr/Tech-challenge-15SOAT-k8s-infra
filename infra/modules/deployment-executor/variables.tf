@@ -53,7 +53,7 @@ variable "newrelic_layer_version_arns" {
   validation {
     condition = var.newrelic_layer_version_arns == null || (
       can(regex("^arn:aws:lambda:us-east-1:451483290750:layer:NewRelicJava17:[1-9][0-9]*$", var.newrelic_layer_version_arns.java_slim)) &&
-      can(regex("^arn:aws:lambda:us-east-1:451483290750:layer:NewRelicExtension:[1-9][0-9]*$", var.newrelic_layer_version_arns.extension))
+      can(regex("^arn:aws:lambda:us-east-1:451483290750:layer:NewRelicLambdaExtension:[1-9][0-9]*$", var.newrelic_layer_version_arns.extension))
     )
     error_message = "New Relic layer inputs must be exact pinned Java17 and Extension version ARNs from the reviewed publisher account; placeholders and wildcards are forbidden."
   }

@@ -73,13 +73,13 @@ locals {
         {
           Sid      = "RunOnlyReviewedKubernetesPlatformProviderActions"
           Effect   = "Allow"
-          Action   = ["sts:GetCallerIdentity", "apigateway:GET", "apigateway:POST", "apigateway:PATCH", "apigateway:DELETE", "elasticloadbalancing:DescribeListeners", "elasticloadbalancing:DescribeRules", "elasticloadbalancing:DescribeTargetGroups", "elasticloadbalancing:DescribeTags"]
+          Action   = ["sts:GetCallerIdentity", "apigateway:GET", "apigateway:POST", "apigateway:PATCH", "apigateway:DELETE", "elasticloadbalancing:DescribeListeners", "elasticloadbalancing:DescribeRules", "elasticloadbalancing:DescribeTargetGroups", "elasticloadbalancing:DescribeTags", "elasticloadbalancing:DescribeTargetHealth", "elasticloadbalancing:DescribeListenerAttributes", "logs:DescribeLogGroups", "logs:ListTagsForResource", "eks:DescribeAccessPolicy", "eks:ListAssociatedAccessPolicies"]
           Resource = "*"
         },
         {
           Sid      = "ManageOnlyItsClusterAccessEntry"
           Effect   = "Allow"
-          Action   = ["eks:CreateAccessEntry", "eks:DeleteAccessEntry", "eks:DescribeAccessEntry", "eks:ListAccessEntries", "eks:AssociateAccessPolicy", "eks:DisassociateAccessPolicy", "eks:ListAssociatedAccessPolicies"]
+          Action   = ["eks:CreateAccessEntry", "eks:DeleteAccessEntry", "eks:DescribeAccessEntry", "eks:ListAccessEntries", "eks:AssociateAccessPolicy", "eks:DisassociateAccessPolicy"]
           Resource = var.cluster_arn
         },
         {
