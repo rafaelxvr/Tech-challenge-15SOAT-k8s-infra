@@ -1,0 +1,15 @@
+apiVersion: elbv2.k8s.aws/v1beta1
+kind: TargetGroupBinding
+metadata:
+  name: oficina-app
+  namespace: oficina-${ENVIRONMENT}
+  labels:
+    app.kubernetes.io/part-of: oficina
+    app.kubernetes.io/managed-by: oficina-k8s-infra
+    oficina.io/managed-by: platform-binding
+spec:
+  serviceRef:
+    name: oficina-app
+    port: 8080
+  targetGroupARN: ${TARGET_GROUP_ARN}
+  targetType: ip

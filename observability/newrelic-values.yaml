@@ -1,0 +1,39 @@
+# R2 minimal New Relic bundle. The pre-existing environment ingest Secret is mounted by name;
+# no license/ingest value appears in chart values, Terraform state, image, or workload environment.
+global:
+  lowDataMode: true
+  cluster: ${cluster_name}
+  # These attributes are attached to Kubernetes samples by the bundle and match the finite
+  # dashboard/alert filter. The release renderer substitutes only staging or production.
+  customAttributes:
+    environment: ${environment}
+  customSecretName: ${ingest_secret_name}
+  customSecretLicenseKey: license-key
+newrelic-infrastructure:
+  enabled: true
+  privileged: false
+  # Supported Infrastructure-agent interval syntax. One minute is the approved low-data target.
+  config:
+    interval: 60s
+  resources:
+    requests: { cpu: 75m, memory: 128Mi }
+    limits: { cpu: 150m, memory: 192Mi }
+kube-state-metrics:
+  enabled: true
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 100m, memory: 128Mi }
+logging:
+  enabled: true
+  fluentBit:
+    resources:
+      requests: { cpu: 75m, memory: 128Mi }
+      limits: { cpu: 150m, memory: 192Mi }
+nri-kube-events:
+  enabled: false
+prometheus:
+  enabled: false
+pixie-chart:
+  enabled: false
+nri-metadata-injection:
+  enabled: false

@@ -1,0 +1,7 @@
+# CodeBuild does not execute this archive-owned file. The Terraform-owned
+# executor bootstrap verifies the exact S3 object before it runs this release.
+version: 0.2
+phases:
+  build:
+    commands:
+      - 'echo "Archive buildspec is intentionally not executable."'

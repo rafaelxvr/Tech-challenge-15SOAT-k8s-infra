@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/example/oficina-k8s-infra/contracts/deployment-inputs.schema.json",
+  "title": "Oficina Phase 3 deployment inputs",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "accountId",
+    "region",
+    "operatorArn",
+    "githubOidcProviderArn",
+    "stateBucketName",
+    "artifactBucketName",
+    "launchers"
+  ],
+  "properties": {
+    "accountId": { "type": "string", "pattern": "^[0-9]{12}$" },
+    "region": { "const": "us-east-1" },
+    "operatorArn": {
+      "type": "string",
+      "pattern": "^arn:aws:iam::[0-9]{12}:((user|role)/.+|root)$"
+    },
+    "studyRootException": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidenceRecord"],
+      "properties": {
+        "evidenceRecord": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._-]{8,128}\\.json$"
+        }
+      }
+    },
+    "githubOidcProviderArn": {
+      "type": "string",
+      "pattern": "^arn:aws:iam::[0-9]{12}:oidc-provider/token\\.actions\\.githubusercontent\\.com$"
+    },
+    "stateBucketName": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$" },
+    "artifactBucketName": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$" },
+    "launchers": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "repository", "environment", "branch", "githubSubjectPrefix", "githubSubject", "sourcePrefix", "codeBuildProjectArn"],
+        "properties": {
+          "name": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+          "repository": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" },
+          "environment": { "enum": ["staging", "production"] },
+          "branch": { "enum": ["develop", "main"] },
+          "githubSubjectPrefix": { "type": "string", "pattern": "^repo:[A-Za-z0-9_.-]+@[1-9][0-9]*/[A-Za-z0-9_.-]+@[1-9][0-9]*$" },
+          "githubSubject": { "type": "string", "pattern": "^repo:[A-Za-z0-9_.-]+@[1-9][0-9]*/[A-Za-z0-9_.-]+@[1-9][0-9]*:environment:(staging|production)$" },
+          "sourcePrefix": { "type": "string", "pattern": "^[a-z0-9][a-z0-9/_-]*$" },
+          "codeBuildProjectArn": { "type": "string", "pattern": "^arn:aws:codebuild:[a-z0-9-]+:[0-9]{12}:project/[A-Za-z0-9_.-]+$" }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "environment": { "const": "staging" } } },
+            "then": { "properties": { "branch": { "const": "develop" } } }
+          },
+          {
+            "if": { "properties": { "environment": { "const": "production" } } },
+            "then": { "properties": { "branch": { "const": "main" } } }
+          }
+        ]
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "operatorArn": { "pattern": ":root$" } } },
+      "then": { "required": ["studyRootException"] }
+    }
+  ]
+}

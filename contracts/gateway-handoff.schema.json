@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FUN to K8S gateway handoff",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api_id", "execution_arn", "authorizer_id", "environment"],
+  "properties": {
+    "api_id": { "type": "string", "pattern": "^[a-z0-9]+$" },
+    "execution_arn": { "type": "string", "pattern": "^arn:aws:execute-api:us-east-1:[0-9]{12}:[a-z0-9]+$" },
+    "authorizer_id": { "type": "string", "pattern": "^[A-Za-z0-9]+$" },
+    "environment": { "enum": ["staging", "production"] }
+  }
+}

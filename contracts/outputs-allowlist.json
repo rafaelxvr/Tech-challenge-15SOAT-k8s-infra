@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "repository": "oficina-k8s-infra",
+  "scopes": {
+    "foundation": {
+      "vpcId": "vpc_id",
+      "privateSubnetIds": "private_subnet_ids",
+      "databaseSubnetIds": "database_subnet_ids",
+      "functionSecurityGroupId": "function_security_group_id",
+      "clusterName": "cluster_name",
+      "clusterOidcProviderArn": "cluster_oidc_provider_arn",
+      "vpcLinkId": "vpc_link_id",
+      "backendListenerArns": "backend_listener_arns",
+      "codeBuildProjects": "codebuild_projects"
+    },
+    "environment": {
+      "apiId": "api_id",
+      "backendIntegrationId": "backend_integration_id",
+      "healthIntegrationId": "health_integration_id",
+      "targetGroupArn": "target_group_arn",
+      "listenerArn": "listener_arn",
+      "namespace": "namespace"
+    }
+  }
+}
