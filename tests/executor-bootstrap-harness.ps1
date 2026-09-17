@@ -14,8 +14,17 @@ function Write-BashSingleQuoted([string]$Value) {
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $moduleRoot = Join-Path $repoRoot 'infra/modules/deployment-executor'
-$gitBash = 'C:/Program Files/Git/bin/bash.exe'
-if (-not (Test-Path -LiteralPath $gitBash -PathType Leaf)) { Fail 'Git Bash is required for the local CodeBuild bootstrap harness.' }
+$runningOnWindows = [System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT
+$shell = if ($runningOnWindows) {
+    'C:/Program Files/Git/bin/bash.exe'
+}
+else {
+    $bashCommand = @(Get-Command bash -CommandType Application -ErrorAction SilentlyContinue)[0]
+    if ($null -eq $bashCommand) { $null } else { $bashCommand.Source }
+}
+if ([string]::IsNullOrWhiteSpace($shell) -or -not (Test-Path -LiteralPath $shell -PathType Leaf)) {
+    Fail $(if ($runningOnWindows) { 'Git Bash is required for the local CodeBuild bootstrap harness.' } else { 'bash is required for the local CodeBuild bootstrap harness.' })
+}
 $temp = Join-Path ([System.IO.Path]::GetTempPath()) "oficina-executor-harness-$([guid]::NewGuid())"
 
 try {
@@ -56,7 +65,7 @@ try {
     $prepareScript = Join-Path $temp 'prepare-tfvars-directory.sh'
     $prepareSource = 'set -euo pipefail' + "`n" + 'reviewed_tfvars_path=' + (Write-BashSingleQuoted $directoryFixture.Replace('\', '/')) + "`n" + $prepareTfvarsDirectory + "`n" + 'test -d "$(dirname "${reviewed_tfvars_path}")"'
     Set-Content -LiteralPath $prepareScript -Value $prepareSource -NoNewline
-    & $gitBash $prepareScript
+    & $shell $prepareScript
     Assert-True ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath (Split-Path -Parent $directoryFixture) -PathType Container)) 'Rendered preparation must create a missing parent without losing path quoting.'
     foreach ($environment in @('staging', 'production')) {
         $dbBuildspec = $renderedBuildspecs.PSObject.Properties["db_$environment"].Value
@@ -116,18 +125,37 @@ set -euo pipefail
 printf '%s\n' "$*" >> "$PWSH_CAPTURE_FILE"
 exec "$(cygpath -u "$HARNESS_REAL_PWSH")" "$@"
 '@
+    if (-not $runningOnWindows) {
+        $pwshStub = $pwshStub.Replace('exec "$(cygpath -u "$HARNESS_REAL_PWSH")" "$@"', 'exec "$HARNESS_REAL_PWSH" "$@"')
+    }
     Set-Content -LiteralPath (Join-Path $bin 'pwsh') -NoNewline -Value $pwshStub
-    $terraformStub = @'
+    $terraformStub = if ($runningOnWindows) { @'
 @echo off
 echo %*>> "%CAPTURE_FILE%"
 exit /b 0
-'@
-    Set-Content -LiteralPath (Join-Path $bin 'terraform.cmd') -NoNewline -Value $terraformStub
+'@ } else { @'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$CAPTURE_FILE"
+'@ }
+    $terraformStubName = if ($runningOnWindows) { 'terraform.cmd' } else { 'terraform' }
+    Set-Content -LiteralPath (Join-Path $bin $terraformStubName) -NoNewline -Value $terraformStub
+    if (-not $runningOnWindows) {
+        foreach ($stub in @('aws', 'pwsh', $terraformStubName)) {
+            & chmod +x (Join-Path $bin $stub)
+            if ($LASTEXITCODE -ne 0) { Fail "Could not mark the Linux harness stub '$stub' executable." }
+        }
+    }
     $capture = Join-Path $temp 'terraform-capture.txt'
     $pwshCapture = Join-Path $temp 'pwsh-capture.txt'
     $scriptPath = $bootstrapPath.Replace('\', '/')
     $binPath = $bin.Replace('\', '/')
-    $script = 'export PATH="$(cygpath -u ' + (Write-BashSingleQuoted $binPath) + '):$PATH"' + "`n" + 'exec /usr/bin/bash "$(cygpath -u ' + (Write-BashSingleQuoted $scriptPath) + ')"' + "`n"
+    $script = if ($runningOnWindows) {
+        'export PATH="$(cygpath -u ' + (Write-BashSingleQuoted $binPath) + '):$PATH"' + "`n" + 'exec /usr/bin/bash "$(cygpath -u ' + (Write-BashSingleQuoted $scriptPath) + ')"' + "`n"
+    }
+    else {
+        'export PATH=' + (Write-BashSingleQuoted $binPath) + ':$PATH' + "`n" + 'exec ' + (Write-BashSingleQuoted $shell) + ' ' + (Write-BashSingleQuoted $scriptPath) + "`n"
+    }
     $runner = Join-Path $temp 'run-rendered-bootstrap.sh'; Set-Content -LiteralPath $runner -NoNewline -Value $script
 
     $overrideNames = @('DEPLOY_ENVIRONMENT', 'TERRAFORM_BACKEND_BUCKET', 'TERRAFORM_BACKEND_KEY', 'TERRAFORM_BACKEND_LOCK_KEY', 'TERRAFORM_BACKEND_REGION', 'SOURCE_BUCKET', 'SOURCE_KEY', 'SOURCE_VERSION_ID', 'EXPECTED_SHA256', 'RELEASE_MANIFEST_KEY', 'RELEASE_MANIFEST_VERSION_ID', 'EXPECTED_MANIFEST_SHA256', 'SOURCE_COMMIT', 'DEPLOYER_IMAGE_DIGEST', 'DEPLOYMENT_TFVARS_PATH', 'DEPLOYMENT_MODE', 'TFVARS_OBJECT_KEY', 'TFVARS_VERSION_ID', 'EXPECTED_TFVARS_SHA256', 'HARNESS_BUNDLE', 'HARNESS_MANIFEST', 'HARNESS_TFVARS', 'CAPTURE_FILE', 'PWSH_CAPTURE_FILE', 'HARNESS_REAL_PWSH')
@@ -140,7 +168,7 @@ exit /b 0
         $env:SOURCE_COMMIT = ('a' * 40); $env:DEPLOYER_IMAGE_DIGEST = ('sha256:' + ('b' * 64)); $env:DEPLOYMENT_TFVARS_PATH = '/tmp/attacker.tfvars.json'; $env:DEPLOYMENT_MODE = 'apply'
         $env:TFVARS_OBJECT_KEY = 'releases/k8s/staging/config/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.tfvars.json'; $env:TFVARS_VERSION_ID = 'tfvars-version'; $env:EXPECTED_TFVARS_SHA256 = $tfvarsSha
         $env:HARNESS_BUNDLE = $bundle; $env:HARNESS_MANIFEST = $manifest; $env:HARNESS_TFVARS = $tfvarsInput; $env:CAPTURE_FILE = $capture; $env:PWSH_CAPTURE_FILE = $pwshCapture; $env:HARNESS_REAL_PWSH = (Get-Command pwsh -CommandType Application | Select-Object -First 1).Source
-        & $gitBash $runner
+        & $shell $runner
         Assert-True ($LASTEXITCODE -eq 0) 'The rendered bootstrap did not complete with attacker backend overrides present.'
         $terraformCalls = Get-Content -LiteralPath $capture -Raw
         $pwshCalls = Get-Content -LiteralPath $pwshCapture -Raw
@@ -150,7 +178,7 @@ exit /b 0
 
         Remove-Item -LiteralPath $capture -Force
         $env:DEPLOY_ENVIRONMENT = 'production'
-        & $gitBash $runner 2>$null
+        & $shell $runner 2>$null
         Assert-True ($LASTEXITCODE -ne 0) 'A mismatched DEPLOY_ENVIRONMENT override must fail in the rendered bootstrap.'
         Assert-True (-not (Test-Path -LiteralPath $capture -PathType Leaf)) 'A mismatched DEPLOY_ENVIRONMENT override reached Terraform.'
     }
