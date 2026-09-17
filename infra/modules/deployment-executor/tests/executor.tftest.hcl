@@ -154,6 +154,17 @@ run "eight_bounded_private_deployers" {
     error_message = "Each repository and reviewed environment must receive its explicit executor permission profile."
   }
   assert {
+    condition = alltrue([for environment in ["staging", "production"] :
+      one([for statement in jsondecode(local.executor_permission_profile_documents["k8s_${environment}"]).statements : statement if statement.Sid == "RunOnlyReviewedKubernetesPlatformProviderActions"]).Action == [
+        "sts:GetCallerIdentity", "apigateway:GET", "apigateway:POST", "apigateway:PATCH", "apigateway:DELETE",
+        "elasticloadbalancing:DescribeListeners", "elasticloadbalancing:DescribeRules", "elasticloadbalancing:DescribeTargetGroups", "elasticloadbalancing:DescribeTags",
+        "elasticloadbalancing:DescribeTargetHealth", "elasticloadbalancing:DescribeListenerAttributes", "logs:DescribeLogGroups", "logs:ListTagsForResource",
+        "eks:DescribeAccessPolicy", "eks:ListAssociatedAccessPolicies"
+      ]
+    ])
+    error_message = "Kubernetes platform plans require the reviewed read-only EKS, ELB and CloudWatch Logs discovery actions."
+  }
+  assert {
     condition = alltrue([
       strcontains(local.executor_permission_profile_documents["db_staging"], "rds:CreateDBInstance"),
       strcontains(local.executor_permission_profile_documents["db_production"], "rds:ModifyDBParameterGroup"),
