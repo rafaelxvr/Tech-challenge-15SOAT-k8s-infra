@@ -32,8 +32,8 @@ variables {
     }
   }
   newrelic_layer_version_arns = {
-    java_slim = "arn:aws:lambda:us-east-1:451483290750:layer:NewRelicJava17:42"
-    extension = "arn:aws:lambda:us-east-1:451483290750:layer:NewRelicExtension:18"
+    java_slim = "arn:aws:lambda:us-east-1:451483290750:layer:NewRelicJava17:29"
+    extension = "arn:aws:lambda:us-east-1:451483290750:layer:NewRelicLambdaExtension:77"
   }
   application_bootstrap_secret_refs = {
     staging = {
@@ -201,8 +201,8 @@ run "eight_bounded_private_deployers" {
         Resource = "arn:aws:lambda:us-east-1:123456789012:function:oficina-phase3-${environment}-*"
       } &&
       one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "ReadOnlyPinnedNewRelicLayerVersions"]).Resource == [
-        "arn:aws:lambda:us-east-1:451483290750:layer:NewRelicJava17:42",
-        "arn:aws:lambda:us-east-1:451483290750:layer:NewRelicExtension:18"
+        "arn:aws:lambda:us-east-1:451483290750:layer:NewRelicJava17:29",
+        "arn:aws:lambda:us-east-1:451483290750:layer:NewRelicLambdaExtension:77"
       ] &&
       one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "DiscoverOnlyReviewedEnvironmentGatewayCollections"]).Action == ["apigateway:GET"] &&
       one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "CreateOnlyReviewedEnvironmentGatewayBindings"]).Action == ["apigateway:POST"] &&
@@ -435,7 +435,7 @@ run "rejects_unreviewed_gateway_and_newrelic_inputs" {
     }
     newrelic_layer_version_arns = {
       java_slim = "arn:aws:lambda:us-east-1:451483290750:layer:NewRelicJava17:*"
-      extension = "arn:aws:lambda:us-east-1:451483290750:layer:NewRelicExtension:18"
+      extension = "arn:aws:lambda:us-east-1:451483290750:layer:NewRelicLambdaExtension:77"
     }
   }
   expect_failures = [var.function_gateway_bindings, var.newrelic_layer_version_arns]

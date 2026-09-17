@@ -32,7 +32,7 @@ variables {
   newrelic_function_instrumentation = {
     for key in ["challenge", "verification", "authorizer", "notification"] : key => {
       function_name                      = "oficina-phase3-staging-${key}"
-      layers                             = ["arn:aws:lambda:us-east-1:451483290750:layer:NewRelicJava17:42", "arn:aws:lambda:us-east-1:451483290750:layer:NewRelicExtension:18"]
+      layers                             = ["arn:aws:lambda:us-east-1:451483290750:layer:NewRelicJava17:29", "arn:aws:lambda:us-east-1:451483290750:layer:NewRelicLambdaExtension:77"]
       environment                        = { NEW_RELIC_LAMBDA_EXTENSION_ENABLED = "true", NEW_RELIC_LAMBDA_EXTENSION_LOGS_ENABLED = "true", NEW_RELIC_APPLICATION_LOGGING_FORWARDING_ENABLED = "false", NEW_RELIC_LICENSE_KEY_SECRET = "arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/staging/newrelic-ingest-AbCdEf" }
       log_forwarder                      = "newrelic-extension"
       cloudwatch_subscription_filter_arn = ""
