@@ -25,6 +25,19 @@ Replace illustrative ACCOUNT/DIGEST/AbCdEf values with reviewed outputs (the AWS
 
 Before rollout, APP release orchestration must install a reviewed ConfigMap named `oficina-runtime-public-staging` or `oficina-runtime-public-production` in the corresponding namespace. This package deliberately references existing configuration rather than accepting secret values or inventing issuer/audience values. Missing configuration fails pod startup. The ConfigMap contains:
 
+The handoff can be rendered for review without cluster or AWS access:
+
+```powershell
+./scripts/render-runtime-public-configmap.ps1 -Environment staging `
+  -CustomerPublicKeysFile .\reviewed\customer-public-keys.yaml `
+  -StaffKeyId 'staff-YYYY-MM' `
+  -NotificationQueueUrl 'https://sqs.us-east-1.amazonaws.com/ACCOUNT/oficina-phase3-staging-notifications.fifo' `
+  -HistoryZone 'UTC' -RdsCaFile .\reviewed\us-east-1-bundle.pem `
+  -OutputDirectory .rendered
+```
+
+The renderer accepts only reviewed public key and CA files plus explicit non-secret environment values. It emits the ConfigMap manifest and never applies it; APP release orchestration remains responsible for installing the reviewed output after migration readiness is proven.
+
 | Key | Required reviewed content |
 | --- | --- |
 | `customer-public-keys.yaml` | Only `security.jwt.customer.public-keys`: trusted kid to RSA X.509 SubjectPublicKeyInfo PEM mapping. Convert reviewed FUN public JWK output to SPKI PEM before publishing; a JWK is not directly accepted by APP. No private key, staff HMAC or other Spring override is allowed. |
