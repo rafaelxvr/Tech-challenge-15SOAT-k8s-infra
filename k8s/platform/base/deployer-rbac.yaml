@@ -1,0 +1,81 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: oficina-release-deployer
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps", "services"]
+    verbs: ["get", "list", "watch", "create", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "deployments/scale"]
+    verbs: ["get", "list", "watch", "create", "patch", "update"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch", "create", "patch", "update"]
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["get", "list", "watch", "create", "patch", "update"]
+  - apiGroups: ["secrets-store.csi.x-k8s.io"]
+    resources: ["secretproviderclasses"]
+    verbs: ["get", "list", "watch", "create", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: oficina-release-deployer
+subjects:
+  - kind: User
+    name: ${DEPLOYER_PRINCIPAL_ARN}
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: Role
+  name: oficina-release-deployer
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: oficina-platform-binding-create
+rules:
+  - apiGroups: ["elbv2.k8s.aws"]
+    resources: ["targetgroupbindings"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: oficina-platform-binding-mutate
+rules:
+  - apiGroups: ["elbv2.k8s.aws"]
+    resources: ["targetgroupbindings"]
+    resourceNames: ["oficina-app"]
+    verbs: ["get", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: oficina-platform-binding-create
+subjects:
+  - kind: User
+    name: ${PLATFORM_BINDING_PRINCIPAL_ARN}
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: Role
+  name: oficina-platform-binding-create
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: oficina-platform-binding-mutate
+subjects:
+  - kind: User
+    name: ${PLATFORM_BINDING_PRINCIPAL_ARN}
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: Role
+  name: oficina-platform-binding-mutate
+  apiGroup: rbac.authorization.k8s.io
