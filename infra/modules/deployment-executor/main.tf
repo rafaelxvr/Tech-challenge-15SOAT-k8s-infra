@@ -22,19 +22,40 @@ locals {
     "eks:UpdateNodegroupVersion"
   ]
   function_gateway_binding_statements = {
-    for environment, api_id in var.function_gateway_api_ids : environment => [{
-      Sid    = "ManageOnlyReviewedEnvironmentGatewayBindings"
-      Effect = "Allow"
-      Action = ["apigateway:GET", "apigateway:POST", "apigateway:PATCH", "apigateway:DELETE"]
-      Resource = [
-        "arn:aws:apigateway:${var.aws_region}::/apis/${api_id}/authorizers",
-        "arn:aws:apigateway:${var.aws_region}::/apis/${api_id}/authorizers/*",
-        "arn:aws:apigateway:${var.aws_region}::/apis/${api_id}/integrations",
-        "arn:aws:apigateway:${var.aws_region}::/apis/${api_id}/integrations/*",
-        "arn:aws:apigateway:${var.aws_region}::/apis/${api_id}/routes",
-        "arn:aws:apigateway:${var.aws_region}::/apis/${api_id}/routes/*"
-      ]
-    }]
+    for environment, binding in var.function_gateway_bindings : environment => [
+      {
+        Sid    = "DiscoverOnlyReviewedEnvironmentGatewayCollections"
+        Effect = "Allow"
+        Action = ["apigateway:GET"]
+        Resource = [
+          "arn:aws:apigateway:${var.aws_region}::/apis/${binding.api_id}/authorizers",
+          "arn:aws:apigateway:${var.aws_region}::/apis/${binding.api_id}/integrations",
+          "arn:aws:apigateway:${var.aws_region}::/apis/${binding.api_id}/routes"
+        ]
+      },
+      {
+        Sid    = "CreateOnlyReviewedEnvironmentGatewayBindings"
+        Effect = "Allow"
+        Action = ["apigateway:POST"]
+        Resource = [
+          "arn:aws:apigateway:${var.aws_region}::/apis/${binding.api_id}/authorizers",
+          "arn:aws:apigateway:${var.aws_region}::/apis/${binding.api_id}/integrations",
+          "arn:aws:apigateway:${var.aws_region}::/apis/${binding.api_id}/routes"
+        ]
+      },
+      {
+        Sid    = "ManageOnlyReviewedEnvironmentGatewayResources"
+        Effect = "Allow"
+        Action = ["apigateway:GET", "apigateway:PATCH", "apigateway:DELETE"]
+        Resource = [
+          "arn:aws:apigateway:${var.aws_region}::/apis/${binding.api_id}/authorizers/${binding.authorizer_id}",
+          "arn:aws:apigateway:${var.aws_region}::/apis/${binding.api_id}/integrations/${binding.challenge_integration_id}",
+          "arn:aws:apigateway:${var.aws_region}::/apis/${binding.api_id}/integrations/${binding.verification_integration_id}",
+          "arn:aws:apigateway:${var.aws_region}::/apis/${binding.api_id}/routes/${binding.challenge_route_id}",
+          "arn:aws:apigateway:${var.aws_region}::/apis/${binding.api_id}/routes/${binding.verification_route_id}"
+        ]
+      }
+    ]
   }
   # Each repo/environment pair receives a provider profile for the Terraform
   # resources it owns. JSON keeps the conditional profile shapes homogeneous

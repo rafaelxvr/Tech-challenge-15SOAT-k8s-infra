@@ -1,19 +1,36 @@
 mock_provider "aws" {}
 
 variables {
-  name                     = "oficina-phase3"
-  aws_region               = "us-east-1"
-  account_id               = "123456789012"
-  vpc_id                   = "vpc-12345678"
-  cluster_arn              = "arn:aws:eks:us-east-1:123456789012:cluster/oficina-phase3"
-  node_group_arns          = ["arn:aws:eks:us-east-1:123456789012:nodegroup/oficina-phase3/workers-a/example", "arn:aws:eks:us-east-1:123456789012:nodegroup/oficina-phase3/workers-b/example"]
-  kubernetes_repository    = "oficina-k8s-infra"
-  artifact_bucket_name     = "oficina-phase3-artifacts-example"
-  state_bucket_name        = "oficina-phase3-state-example"
-  private_subnet_ids       = ["subnet-a", "subnet-b"]
-  security_group_ids       = ["sg-codebuild"]
-  deployer_image_digest    = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-  function_gateway_api_ids = { staging = "stage123", production = "prod456" }
+  name                  = "oficina-phase3"
+  aws_region            = "us-east-1"
+  account_id            = "123456789012"
+  vpc_id                = "vpc-12345678"
+  cluster_arn           = "arn:aws:eks:us-east-1:123456789012:cluster/oficina-phase3"
+  node_group_arns       = ["arn:aws:eks:us-east-1:123456789012:nodegroup/oficina-phase3/workers-a/example", "arn:aws:eks:us-east-1:123456789012:nodegroup/oficina-phase3/workers-b/example"]
+  kubernetes_repository = "oficina-k8s-infra"
+  artifact_bucket_name  = "oficina-phase3-artifacts-example"
+  state_bucket_name     = "oficina-phase3-state-example"
+  private_subnet_ids    = ["subnet-a", "subnet-b"]
+  security_group_ids    = ["sg-codebuild"]
+  deployer_image_digest = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  function_gateway_bindings = {
+    staging = {
+      api_id                      = "stage123"
+      authorizer_id               = "authstage"
+      challenge_integration_id    = "intstage1"
+      verification_integration_id = "intstage2"
+      challenge_route_id          = "routestage1"
+      verification_route_id       = "routestage2"
+    }
+    production = {
+      api_id                      = "prod456"
+      authorizer_id               = "authprod"
+      challenge_integration_id    = "intprod1"
+      verification_integration_id = "intprod2"
+      challenge_route_id          = "routeprod1"
+      verification_route_id       = "routeprod2"
+    }
+  }
   newrelic_layer_version_arns = {
     java_slim = "arn:aws:lambda:us-east-1:451483290750:layer:NewRelicJava17:42"
     extension = "arn:aws:lambda:us-east-1:451483290750:layer:NewRelicExtension:18"
@@ -187,14 +204,18 @@ run "eight_bounded_private_deployers" {
         "arn:aws:lambda:us-east-1:451483290750:layer:NewRelicJava17:42",
         "arn:aws:lambda:us-east-1:451483290750:layer:NewRelicExtension:18"
       ] &&
-      one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "ManageOnlyReviewedEnvironmentGatewayBindings"]).Resource == [
-        "arn:aws:apigateway:us-east-1::/apis/${environment == "staging" ? "stage123" : "prod456"}/authorizers",
-        "arn:aws:apigateway:us-east-1::/apis/${environment == "staging" ? "stage123" : "prod456"}/authorizers/*",
-        "arn:aws:apigateway:us-east-1::/apis/${environment == "staging" ? "stage123" : "prod456"}/integrations",
-        "arn:aws:apigateway:us-east-1::/apis/${environment == "staging" ? "stage123" : "prod456"}/integrations/*",
-        "arn:aws:apigateway:us-east-1::/apis/${environment == "staging" ? "stage123" : "prod456"}/routes",
-        "arn:aws:apigateway:us-east-1::/apis/${environment == "staging" ? "stage123" : "prod456"}/routes/*"
-      ]
+      one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "DiscoverOnlyReviewedEnvironmentGatewayCollections"]).Action == ["apigateway:GET"] &&
+      one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "CreateOnlyReviewedEnvironmentGatewayBindings"]).Action == ["apigateway:POST"] &&
+      one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "ManageOnlyReviewedEnvironmentGatewayResources"]).Action == ["apigateway:GET", "apigateway:PATCH", "apigateway:DELETE"] &&
+      one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "ManageOnlyReviewedEnvironmentGatewayResources"]).Resource == [
+        "arn:aws:apigateway:us-east-1::/apis/${environment == "staging" ? "stage123" : "prod456"}/authorizers/${environment == "staging" ? "authstage" : "authprod"}",
+        "arn:aws:apigateway:us-east-1::/apis/${environment == "staging" ? "stage123" : "prod456"}/integrations/${environment == "staging" ? "intstage1" : "intprod1"}",
+        "arn:aws:apigateway:us-east-1::/apis/${environment == "staging" ? "stage123" : "prod456"}/integrations/${environment == "staging" ? "intstage2" : "intprod2"}",
+        "arn:aws:apigateway:us-east-1::/apis/${environment == "staging" ? "stage123" : "prod456"}/routes/${environment == "staging" ? "routestage1" : "routeprod1"}",
+        "arn:aws:apigateway:us-east-1::/apis/${environment == "staging" ? "stage123" : "prod456"}/routes/${environment == "staging" ? "routestage2" : "routeprod2"}"
+      ] &&
+      !strcontains(local.executor_permission_profile_documents["functions_${environment}"], "/routes/*") &&
+      !strcontains(local.executor_permission_profile_documents["functions_${environment}"], "/integrations/*")
     ])
     error_message = "Functions executors must manage only the reviewed Lambda invoke, pinned New Relic layer and API Gateway v2 binding resources."
   }
@@ -238,6 +259,8 @@ run "eight_bounded_private_deployers" {
   }
   assert {
     condition = (!strcontains(local.executor_permission_profile_documents["functions_staging"], "/apis/prod456/") && !strcontains(local.executor_permission_profile_documents["functions_production"], "/apis/stage123/") &&
+      !strcontains(local.executor_permission_profile_documents["functions_staging"], "/apis/stage123/integrations/intprod") &&
+      !strcontains(local.executor_permission_profile_documents["functions_production"], "/apis/prod456/routes/routestage") &&
       one([for statement in jsondecode(local.executor_permission_profile_documents["functions_staging"]).statements : statement if statement.Sid == "CreateOnlyTaggedEnvironmentAlarmTopic"]).Condition.StringEquals["aws:RequestTag/project"] == "oficina-phase3" &&
     one([for statement in jsondecode(local.executor_permission_profile_documents["functions_staging"]).statements : statement if statement.Sid == "ManageOnlyEnvironmentAlarmTopic"]).Condition.StringEquals["aws:ResourceTag/project"] == "oficina-phase3")
     error_message = "FUN gateway permissions must exclude the opposite environment API, and SNS writes/management must use the correct request/resource tag conditions."
@@ -400,13 +423,37 @@ run "rejects_cross_environment_bootstrap_reference" {
 run "rejects_unreviewed_gateway_and_newrelic_inputs" {
   command = plan
   variables {
-    function_gateway_api_ids = { staging = "production-api" }
+    function_gateway_bindings = {
+      staging = {
+        api_id                      = "prod-api"
+        authorizer_id               = "authstage"
+        challenge_integration_id    = "intstage1"
+        verification_integration_id = "intstage2"
+        challenge_route_id          = "routestage1"
+        verification_route_id       = "routestage2"
+      }
+    }
     newrelic_layer_version_arns = {
       java_slim = "arn:aws:lambda:us-east-1:451483290750:layer:NewRelicJava17:*"
       extension = "arn:aws:lambda:us-east-1:451483290750:layer:NewRelicExtension:18"
     }
   }
-  expect_failures = [var.function_gateway_api_ids, var.newrelic_layer_version_arns]
+  expect_failures = [var.function_gateway_bindings, var.newrelic_layer_version_arns]
+}
+
+run "rejects_duplicate_environment_gateway_api_ids" {
+  command = plan
+  variables {
+    function_gateway_bindings = {
+      staging = {
+        api_id = "same123", authorizer_id = "authstage", challenge_integration_id = "intstage1", verification_integration_id = "intstage2", challenge_route_id = "routestage1", verification_route_id = "routestage2"
+      }
+      production = {
+        api_id = "same123", authorizer_id = "authprod", challenge_integration_id = "intprod1", verification_integration_id = "intprod2", challenge_route_id = "routeprod1", verification_route_id = "routeprod2"
+      }
+    }
+  }
+  expect_failures = [var.function_gateway_bindings]
 }
 
 run "fails_closed_without_pinned_newrelic_layers" {

@@ -19,15 +19,31 @@ variable "state_bucket_name" {
 }
 variable "private_subnet_ids" { type = list(string) }
 variable "security_group_ids" { type = list(string) }
-variable "function_gateway_api_ids" {
-  type        = map(string)
+variable "function_gateway_bindings" {
+  type = map(object({
+    api_id                      = string
+    authorizer_id               = string
+    challenge_integration_id    = string
+    verification_integration_id = string
+    challenge_route_id          = string
+    verification_route_id       = string
+  }))
   default     = {}
-  description = "Reviewed API Gateway v2 ID per environment. Missing IDs deliberately omit FUN gateway permissions until the platform handoff is reviewed."
+  description = "Reviewed FUN-owned API Gateway v2 resource IDs per environment. Missing bindings deliberately omit FUN gateway permissions until the two-phase handoff is reviewed."
   validation {
-    condition = length(setsubtract(toset(keys(var.function_gateway_api_ids)), toset(["staging", "production"]))) == 0 && alltrue([
-      for api_id in values(var.function_gateway_api_ids) : can(regex("^[a-z0-9]{6,16}$", api_id))
-    ])
-    error_message = "function_gateway_api_ids may contain only reviewed staging/production API IDs with bounded API Gateway syntax."
+    condition = (length(setsubtract(toset(keys(var.function_gateway_bindings)), toset(["staging", "production"]))) == 0 &&
+      length(distinct([for binding in values(var.function_gateway_bindings) : binding.api_id])) == length(values(var.function_gateway_bindings)) &&
+      alltrue([
+        for binding in values(var.function_gateway_bindings) : alltrue([
+          can(regex("^[a-z0-9]{6,16}$", binding.api_id)),
+          can(regex("^[A-Za-z0-9]{3,64}$", binding.authorizer_id)),
+          can(regex("^[A-Za-z0-9]{3,64}$", binding.challenge_integration_id)),
+          can(regex("^[A-Za-z0-9]{3,64}$", binding.verification_integration_id)),
+          can(regex("^[A-Za-z0-9]{3,64}$", binding.challenge_route_id)),
+          can(regex("^[A-Za-z0-9]{3,64}$", binding.verification_route_id))
+        ])
+    ]))
+    error_message = "function_gateway_bindings must contain bounded reviewed FUN authorizer, integration and CPF route IDs, with distinct staging/production API IDs."
   }
 }
 variable "newrelic_layer_version_arns" {
