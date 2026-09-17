@@ -20,7 +20,7 @@ Assert-Contains $values 'lowDataMode: true' 'The bundle must remain in low-data 
 Assert-Contains $values 'customAttributes:' 'Kubernetes samples need an explicit dashboard environment attribute.'
 Assert-Contains $values 'environment: ${environment}' 'The environment attribute must remain a deployment-time finite value.'
 Assert-Contains $values 'config:' 'Infrastructure agent configuration is required for supported collection settings.'
-Assert-Contains $values 'interval: 60s' 'Kubernetes collection must use the approved 60-second interval.'
+Assert-Contains $values 'interval: 30s' 'Kubernetes collection must use the approved 30-second low-data interval.'
 Assert-Contains $secretSync 'namespace: newrelic' 'The chart credential must be synchronized in the collector namespace.'
 Assert-Contains $secretSync 'serviceAccountName: newrelic-ingest-secret-sync' 'CSI sync must not use the default ServiceAccount.'
 Assert-Contains $secretSync 'eks.amazonaws.com/role-arn' 'CSI sync must use its existing least-privilege IRSA role.'
@@ -43,7 +43,7 @@ $temporary = Join-Path ([System.IO.Path]::GetTempPath()) ("oficina-nri-render-" 
 try {
     $accountingPath = & $renderer -Environment staging -ClusterName oficina-phase3 -IngestSecretName newrelic-staging-ingest -IngestSecretArn arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/staging/newrelic-ingest-AbCdEf -SecretSyncIrsaRoleArn arn:aws:iam::123456789012:role/oficina-staging-newrelic-secret-sync -OutputDirectory $temporary
     $accounting = Get-Content -LiteralPath $accountingPath -Raw | ConvertFrom-Json
-    if ($accounting.chartVersion -ne '5.0.94' -or $accounting.collectionInterval -ne '60s') { throw 'Rendered accounting did not retain the pinned chart or approved interval.' }
+    if ($accounting.chartVersion -ne '5.0.94' -or $accounting.collectionInterval -ne '30s') { throw 'Rendered accounting did not retain the pinned chart or approved interval.' }
     if (@($accounting.collectorWorkloads).Count -lt 3) { throw 'Rendered chart resource accounting is missing an approved collector workload.' }
     if ($accounting.totalRequestedCpuMilli -le 0 -or $accounting.totalRequestedMemoryMiB -le 0) { throw 'Rendered collector accounting must contain concrete resource requests.' }
     Write-Output 'PASS: New Relic chart schema/render validation and collector resource accounting passed.'
