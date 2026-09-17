@@ -20,7 +20,7 @@ function Assert-Contains([string]$Text, [string]$Expected, [string]$Message) {
 try {
     foreach ($environment in @('staging', 'production')) {
         $environmentIngest = $ingestSecret -replace '/staging/', ("/" + $environment + "/")
-        $file = & $renderer -Environment $environment -Image $image -AppIrsaRoleArn $role -DeployerPrincipalArn $deployer -PlatformBindingPrincipalArn $platformBinder -DbHost 'db.oficina.internal' -DbCidr '10.20.0.0/24' -AlbSubnetCidrOne '10.42.0.0/24' -AlbSubnetCidrTwo '10.42.1.0/24' -AppSecretArn $secret -NewRelicIngestSecretArn $environmentIngest -NewRelicAccountId '1234567' -OutputDirectory $tempDirectory
+        $file = & $renderer -Environment $environment -Image $image -AppIrsaRoleArn ($role -replace 'staging', $environment) -DeployerPrincipalArn $deployer -PlatformBindingPrincipalArn $platformBinder -DbHost 'db.oficina.internal' -DbCidr '10.20.0.0/24' -AlbSubnetCidrOne '10.42.0.0/24' -AlbSubnetCidrTwo '10.42.1.0/24' -AppSecretArn ($secret -replace '/staging/', "/$environment/") -AuthorizerTrustSecretArn "arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/$environment/authorizer-trust-AbCdEf" -NewRelicIngestSecretArn $environmentIngest -NewRelicAccountId '1234567' -OutputDirectory $tempDirectory
         $manifest = Get-Content -LiteralPath $file -Raw
         if ($manifest -match '\$\{[A-Z_]+\}') { throw "Rendered $environment manifest still has deployment tokens." }
         Assert-Contains $manifest "name: oficina-$environment" "Expected isolated $environment namespace."
@@ -59,9 +59,10 @@ try {
     Assert-Contains $production 'kind: PodDisruptionBudget' 'Production requires a PDB.'
     Assert-Contains $production 'minAvailable: 1' 'Production PDB minimum availability must be one.'
 
+    $environment = 'staging'
     $crossEnvironmentIngestRejected = $false
     try {
-        & $renderer -Environment staging -Image $image -AppIrsaRoleArn $role -DeployerPrincipalArn $deployer -PlatformBindingPrincipalArn $platformBinder -DbHost 'db.oficina.internal' -DbCidr '10.20.0.0/24' -AlbSubnetCidrOne '10.42.0.0/24' -AlbSubnetCidrTwo '10.42.1.0/24' -AppSecretArn $secret -NewRelicIngestSecretArn ($ingestSecret -replace '/staging/', '/production/') -NewRelicAccountId '1234567' -OutputDirectory $tempDirectory | Out-Null
+        & $renderer -Environment staging -Image $image -AppIrsaRoleArn ($role -replace 'staging', $environment) -DeployerPrincipalArn $deployer -PlatformBindingPrincipalArn $platformBinder -DbHost 'db.oficina.internal' -DbCidr '10.20.0.0/24' -AlbSubnetCidrOne '10.42.0.0/24' -AlbSubnetCidrTwo '10.42.1.0/24' -AppSecretArn ($secret -replace '/staging/', "/$environment/") -AuthorizerTrustSecretArn "arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/$environment/authorizer-trust-AbCdEf" -NewRelicIngestSecretArn ($ingestSecret -replace '/staging/', '/production/') -NewRelicAccountId '1234567' -OutputDirectory $tempDirectory | Out-Null
     }
     catch { $crossEnvironmentIngestRejected = $true }
     if (-not $crossEnvironmentIngestRejected) { throw 'Renderer accepted a cross-environment New Relic ingest-secret reference.' }

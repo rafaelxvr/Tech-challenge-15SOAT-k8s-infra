@@ -12,6 +12,7 @@ param(
     [Parameter(Mandatory)] [string]$AlbSubnetCidrOne,
     [Parameter(Mandatory)] [string]$AlbSubnetCidrTwo,
     [Parameter(Mandatory)] [string]$AppSecretArn,
+    [Parameter(Mandatory)] [string]$AuthorizerTrustSecretArn,
     [Parameter(Mandatory)] [string]$NewRelicIngestSecretArn,
     [Parameter(Mandatory)] [string]$NewRelicAccountId,
     [Parameter(Mandatory)] [string]$OutputDirectory
@@ -20,12 +21,16 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-if ($Image -notmatch '@sha256:[a-f0-9]{64}$') { throw 'Image must be pinned to a lowercase SHA-256 digest.' }
+if ($Image -cnotmatch '\A[0-9]{12}\.dkr\.ecr\.us-east-1\.amazonaws\.com/[a-z0-9][a-z0-9/_.-]*@sha256:[a-f0-9]{64}\z') { throw 'Image must be an immutable us-east-1 ECR image pinned to a lowercase SHA-256 digest.' }
+$accountId = $Image.Split('.')[0]
 foreach ($arn in @($AppIrsaRoleArn, $DeployerPrincipalArn, $PlatformBindingPrincipalArn)) {
-    if ($arn -notmatch '^arn:aws:iam::[0-9]{12}:role/.+$') { throw 'IRSA and deployer inputs must be IAM role ARNs.' }
+    if ($arn -cnotmatch "\Aarn:aws:iam::${accountId}:role/[A-Za-z0-9/+=,.@_-]+\z") { throw 'IRSA and deployer inputs must be same-account IAM role ARNs.' }
 }
-if ($AppSecretArn -notmatch '^arn:aws:secretsmanager:us-east-1:[0-9]{12}:secret:.+$') { throw 'AppSecretArn must be a Secrets Manager ARN.' }
-if ($NewRelicIngestSecretArn -notmatch ("^arn:aws:secretsmanager:us-east-1:[0-9]{12}:secret:oficina/" + $Environment + "/newrelic-ingest-[A-Za-z0-9/_+=.@-]+$")) { throw 'NewRelicIngestSecretArn must reference the approved existing environment ingest secret.' }
+if ($AppIrsaRoleArn -cnotmatch "[-/]${Environment}(-|\z)") { throw 'App IRSA role must identify the selected environment.' }
+foreach ($entry in @(@{Arn=$AppSecretArn; Name='app'}, @{Arn=$AuthorizerTrustSecretArn; Name='authorizer-trust'}, @{Arn=$NewRelicIngestSecretArn; Name='newrelic-ingest'})) {
+    if ($entry.Arn -cnotmatch ("\Aarn:aws:secretsmanager:us-east-1:${accountId}:secret:oficina/${Environment}/" + $entry.Name + '-[A-Za-z0-9]{6}\z')) { throw 'Runtime secrets must be the exact approved same-account environment references.' }
+}
+if ($DbHost -cnotmatch '\A[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\z') { throw 'Database host must be a DNS hostname without a port, URL or whitespace.' }
 if ($NewRelicAccountId -notmatch '^[1-9][0-9]{0,15}$') { throw 'NewRelicAccountId must be a nonsecret positive account identifier.' }
 foreach ($cidr in @($DbCidr, $AlbSubnetCidrOne, $AlbSubnetCidrTwo)) {
     if ($cidr -notmatch '^([0-9]{1,3}\.){3}[0-9]{1,3}/([0-9]|[12][0-9]|3[0-2])$') { throw 'Database and ALB subnet inputs must be CIDR blocks.' }
@@ -48,6 +53,7 @@ $tokens = [ordered]@{
     '${ALB_SUBNET_CIDR_TWO}'     = $AlbSubnetCidrTwo
     '${ENVIRONMENT}'             = $Environment
     '${APP_SECRET_ARN}'          = $AppSecretArn
+    '${AUTHORIZER_TRUST_SECRET_ARN}' = $AuthorizerTrustSecretArn
     '${NEW_RELIC_INGEST_SECRET_ARN}' = $NewRelicIngestSecretArn
     '${NEW_RELIC_ACCOUNT_ID}'    = $NewRelicAccountId
 }
@@ -56,5 +62,5 @@ if ($rendered -match '\$\{[A-Z_]+\}') { throw 'Unresolved deployment input token
 
 New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
 $output = Join-Path $OutputDirectory "platform-$Environment.yaml"
-Set-Content -LiteralPath $output -Value $rendered -NoNewline
+Set-Content -LiteralPath $output -Value ($rendered -join "`n") -NoNewline
 Write-Output $output

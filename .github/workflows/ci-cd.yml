@@ -24,6 +24,9 @@ jobs:
           ./tests/release-readiness-contract.ps1
           ./tests/gateway-contract-tests.ps1
           ./tests/functions-contract.ps1
+          ./tests/platform-manifests-tests.ps1
+          ./tests/application-rollout-tests.ps1
+          ./tests/workload-capacity-tests.ps1
       - name: Verify Terraform formatting
         run: terraform fmt -check -recursive
       - name: Verify monitoring Terraform and rendered New Relic collectors

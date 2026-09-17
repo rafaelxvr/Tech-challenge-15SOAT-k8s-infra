@@ -2,7 +2,7 @@
 
 `k8s/platform` renders the staging and production platform workload package. It owns two isolated namespaces, application service account and release RBAC, secret-store references, the fixed `oficina-app` Service, target-group binding, workload capacity policy and network policies.
 
-The renderer requires immutable image and infrastructure-reference inputs. It refuses unresolved placeholders, a mutable image, non-role principals and malformed ARNs. No secret value is accepted or written: `APP_SECRET_ARN` is only a Secrets Manager reference used by the CSI provider.
+The renderer requires an immutable us-east-1 ECR image and infrastructure-reference inputs. It refuses unresolved placeholders, mutable images, unsafe substitutions, cross-account principals and cross-environment runtime secret references. No secret value is accepted or written: the app, authorizer-trust and ingest inputs are exact Secrets Manager references used by the CSI provider. The ECR account must match the reviewed workload account.
 
 ```powershell
 ./scripts/render-platform.ps1 -Environment staging `
@@ -12,9 +12,36 @@ The renderer requires immutable image and infrastructure-reference inputs. It re
   -PlatformBindingPrincipalArn 'arn:aws:iam::ACCOUNT:role/oficina-platform-binding' `
   -DbHost 'DATABASE_ENDPOINT' -DbCidr 'DATABASE_SUBNET_CIDR' `
   -AlbSubnetCidrOne 'ALB_SUBNET_ONE_CIDR' -AlbSubnetCidrTwo 'ALB_SUBNET_TWO_CIDR' `
-  -AppSecretArn 'arn:aws:secretsmanager:us-east-1:ACCOUNT:secret:oficina/staging/app-EXAMPLE' `
+  -AppSecretArn 'arn:aws:secretsmanager:us-east-1:ACCOUNT:secret:oficina/staging/app-AbCdEf' `
+  -AuthorizerTrustSecretArn 'arn:aws:secretsmanager:us-east-1:ACCOUNT:secret:oficina/staging/authorizer-trust-AbCdEf' `
+  -NewRelicIngestSecretArn 'arn:aws:secretsmanager:us-east-1:ACCOUNT:secret:oficina/staging/newrelic-ingest-AbCdEf' `
+  -NewRelicAccountId 'REVIEWED_ACCOUNT_ID' `
   -OutputDirectory .rendered
 ```
+
+Replace illustrative ACCOUNT/DIGEST/AbCdEf values with reviewed outputs (the AWS secret ARN suffix is six alphanumeric characters). Rendering is offline and never applies resources.
+
+## I6 application runtime contract
+
+Before rollout, APP release orchestration must install a reviewed ConfigMap named `oficina-runtime-public-staging` or `oficina-runtime-public-production` in the corresponding namespace. This package deliberately references existing configuration rather than accepting secret values or inventing issuer/audience values. Missing configuration fails pod startup. The ConfigMap contains:
+
+| Key | Required reviewed content |
+| --- | --- |
+| `customer-public-keys.yaml` | Only `security.jwt.customer.public-keys`: trusted kid to RSA X.509 SubjectPublicKeyInfo PEM mapping. Convert reviewed FUN public JWK output to SPKI PEM before publishing; a JWK is not directly accepted by APP. No private key, staff HMAC or other Spring override is allowed. |
+| `staff-issuer`, `staff-audience`, `staff-key-id` | Exact environment-specific staff trust settings shared with the authorizer. |
+| `customer-issuer`, `customer-audience` | Exact environment-specific customer trust settings shared with the signer/authorizer. |
+| `notification-queue-url`, `history-zone` | That environment's reviewed FIFO queue URL; proven legacy timestamp compatibility zone (UTC only for a fresh synthetic installation). |
+| `rds-ca.pem` | Regional public RDS CA bundle, pinned and verified during release packaging. |
+
+Install new customer public keys before activating the corresponding signer kid and retain old keys for the reviewed overlap. The CSI provider projects only `STAFF_HMAC_SECRET` from the existing approved authorizer-trust bundle into the separate `oficina-staff-jwt` Kubernetes Secret. Customer private signing material is never referenced. This reuses the approved secret inventory; it creates no AWS secret. The APP runtime credential secret retains its existing `username`/`password` JSON contract; never supply the master or migration credential ARN.
+
+The reviewed APP IRSA role must trust the exact environment namespace/service account and already permit reads of only the three referenced runtime secrets plus `sqs:SendMessage` to its environment queue. This source change does not expand Terraform IAM permissions: supplying that role is a deployment prerequisite. Public configuration contains no credentials. The database URL uses the approved `oficina` database with `verify-full` and an explicit mounted CA path.
+
+Cloud pods disable Flyway and set Hibernate DDL to `validate`. Migration/bootstrap Jobs and their distinct credentials remain APP-owned and must succeed before this package is released. The first writer cutover drains old writers before migration and uses APP-controlled Recreate sequencing; this ordinary compatible-release template retains zero-surge RollingUpdate. Do not grant migration credentials to these pods or roll back to an incompatible writer. No migration Job or cloud cutover is performed by the renderer.
+
+The stable Service remains `oficina-app:8080`; only the platform binding principal attaches its environment target group. Before binding business routes, require the reviewed authorizer and byte-identical route matrix, including explicit scopes/compatibility aliases and no retired email mutation. Existing platform Terraform remains the route owner until a separately reviewed single-owner handoff; rollout must not create duplicate gateway routes or weaken APP resource authorization.
+
+Offline checks: `pwsh -File tests/application-rollout-tests.ps1`, `pwsh -File tests/platform-manifests-tests.ps1`, and `pwsh -File tests/workload-capacity-tests.ps1`. These render both overlays and check immutable images, requests/limits, probes, trust separation, migration restrictions, HPA/PDB and invalid input rejection. A disposable Kind cutover, live IRSA/CSI access, key rotation and actual allocatable capacity remain integration acceptance work; local rendering does not prove them.
 
 The foundation creates the shared internal ALB, VPC link and fixed 503 listeners. The platform Terraform module creates the per-environment IP target group, one catch-all forwarding listener rule, HTTP API/integrations and exact EKS access entry. Environment roots receive those fields as an allowlisted `foundation_outputs` contract, not independent manually copied IDs. Terraform never attaches individual targets; the pinned AWS Load Balancer Controller does that through `TargetGroupBinding` after the stable Service exists.
 

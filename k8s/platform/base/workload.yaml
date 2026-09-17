@@ -38,8 +38,56 @@ spec:
           env:
             - name: SPRING_FLYWAY_ENABLED
               value: "false"
+            - name: SPRING_JPA_HIBERNATE_DDL_AUTO
+              value: "validate"
+            - name: SPRING_CONFIG_ADDITIONAL_LOCATION
+              value: "file:/etc/oficina/public/customer-public-keys.yaml"
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: oficina-staff-jwt
+                  key: staff_hmac_secret
+            - name: JWT_STAFF_ISSUER
+              valueFrom:
+                configMapKeyRef:
+                  name: oficina-runtime-public-${ENVIRONMENT}
+                  key: staff-issuer
+            - name: JWT_STAFF_AUDIENCE
+              valueFrom:
+                configMapKeyRef:
+                  name: oficina-runtime-public-${ENVIRONMENT}
+                  key: staff-audience
+            - name: JWT_STAFF_KEY_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: oficina-runtime-public-${ENVIRONMENT}
+                  key: staff-key-id
+            - name: JWT_CUSTOMER_ISSUER
+              valueFrom:
+                configMapKeyRef:
+                  name: oficina-runtime-public-${ENVIRONMENT}
+                  key: customer-issuer
+            - name: JWT_CUSTOMER_AUDIENCE
+              valueFrom:
+                configMapKeyRef:
+                  name: oficina-runtime-public-${ENVIRONMENT}
+                  key: customer-audience
+            - name: HISTORICO_ZONA_COMPATIBILIDADE
+              valueFrom:
+                configMapKeyRef:
+                  name: oficina-runtime-public-${ENVIRONMENT}
+                  key: history-zone
+            - name: OUTBOX_ENABLED
+              value: "true"
+            - name: OUTBOX_QUEUE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: oficina-runtime-public-${ENVIRONMENT}
+                  key: notification-queue-url
+            - name: AWS_REGION
+              value: "us-east-1"
             - name: SPRING_DATASOURCE_URL
-              value: "jdbc:postgresql://${DB_HOST}:5432/oficina_mecanica?sslmode=verify-full"
+              value: "jdbc:postgresql://${DB_HOST}:5432/oficina?sslmode=verify-full&sslrootcert=/etc/oficina/public/rds-ca.pem"
             - name: SPRING_DATASOURCE_USERNAME
               valueFrom:
                 secretKeyRef:
@@ -102,12 +150,24 @@ spec:
               cpu: "1"
               memory: 1Gi
           volumeMounts:
+            - name: runtime-public
+              mountPath: /etc/oficina/public
+              readOnly: true
             - name: runtime-secrets
               mountPath: /mnt/secrets-store
               readOnly: true
             - name: tmp
               mountPath: /tmp
       volumes:
+        - name: runtime-public
+          configMap:
+            name: oficina-runtime-public-${ENVIRONMENT}
+            optional: false
+            items:
+              - key: customer-public-keys.yaml
+                path: customer-public-keys.yaml
+              - key: rds-ca.pem
+                path: rds-ca.pem
         - name: runtime-secrets
           csi:
             driver: secrets-store.csi.k8s.io

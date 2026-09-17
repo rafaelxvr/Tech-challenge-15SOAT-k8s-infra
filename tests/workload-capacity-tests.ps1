@@ -10,21 +10,23 @@ $tempDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ("oficina-capacity-
 try {
     $common = @{
         Image                = '123456789012.dkr.ecr.us-east-1.amazonaws.com/oficina-app@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
-        AppIrsaRoleArn       = 'arn:aws:iam::123456789012:role/oficina-app'
+        AppIrsaRoleArn       = 'arn:aws:iam::123456789012:role/oficina-app-staging'
         DeployerPrincipalArn = 'arn:aws:iam::123456789012:role/oficina-k8s-deploy'
         PlatformBindingPrincipalArn = 'arn:aws:iam::123456789012:role/oficina-platform-binding'
         DbHost               = 'db.oficina.internal'
         DbCidr               = '10.20.0.0/24'
         AlbSubnetCidrOne     = '10.42.0.0/24'
         AlbSubnetCidrTwo     = '10.42.1.0/24'
-        AppSecretArn         = 'arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/app-AbCdEf'
+        AppSecretArn         = 'arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/staging/app-AbCdEf'
         NewRelicIngestSecretArn = 'arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/staging/newrelic-ingest-AbCdEf'
+        AuthorizerTrustSecretArn = 'arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/staging/authorizer-trust-AbCdEf'
         NewRelicAccountId    = '1234567'
         OutputDirectory      = $tempDirectory
     }
     $stagingFile = & $renderer -Environment staging @common
     $productionInputs = @{} + $common
     $productionInputs.NewRelicIngestSecretArn = $common.NewRelicIngestSecretArn -replace '/staging/', '/production/'
+    foreach ($key in @('AppIrsaRoleArn', 'AppSecretArn', 'AuthorizerTrustSecretArn')) { $productionInputs[$key] = $common[$key] -replace 'staging', 'production' }
     $productionFile = & $renderer -Environment production @productionInputs
     $staging = Get-Content -LiteralPath $stagingFile -Raw
     $production = Get-Content -LiteralPath $productionFile -Raw
