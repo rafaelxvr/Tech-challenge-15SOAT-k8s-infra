@@ -4,3 +4,10 @@ namespace: oficina-staging
 resources:
   - namespace.yaml
   - ../../base
+patches:
+  - target:
+      group: rbac.authorization.k8s.io
+      version: v1
+      kind: Role
+      name: oficina-release-deployer
+    path: app-bootstrap-rbac.yaml
