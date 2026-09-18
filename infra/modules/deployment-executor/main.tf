@@ -527,6 +527,7 @@ locals {
           - |
             set -euo pipefail
             reviewed_environment="__DEPLOYMENT_ENVIRONMENT__"
+            reviewed_repository="__REPOSITORY__"
             reviewed_backend_bucket="__TERRAFORM_BACKEND_BUCKET__"
             reviewed_backend_key="__TERRAFORM_BACKEND_KEY__"
             reviewed_backend_lock_key="__TERRAFORM_BACKEND_LOCK_KEY__"
@@ -579,15 +580,18 @@ locals {
             unzip -q "$${workdir}/bundle.zip" -d "$${workdir}/release"
             apply_switch=()
             if [ "$${reviewed_deployment_mode}" = "apply" ]; then apply_switch=(-ApplyReviewedPlan); fi
-            pwsh -NoLogo -NoProfile -File "$${workdir}/release/scripts/deploy.ps1" -Environment "$${reviewed_environment}" -ReleaseManifest "$${workdir}/release-manifest.json" -ExpectedSourceSha256 "$${EXPECTED_SHA256}" -ExpectedManifestSha256 "$${EXPECTED_MANIFEST_SHA256}" -SourceCommit "$${SOURCE_COMMIT}" -ExpectedDeployerImageDigest "$${DEPLOYER_IMAGE_DIGEST}" -TerraformVariablesFile "$${reviewed_tfvars_path}" -TerraformBackendBucket "$${reviewed_backend_bucket}" -TerraformBackendKey "$${reviewed_backend_key}" -TerraformBackendLockKey "$${reviewed_backend_lock_key}" -TerraformBackendRegion "$${reviewed_backend_region}" "$${apply_switch[@]}"
+            functions_tfvars_digest_switch=()
+            if [ "$${reviewed_repository}" = "oficina-functions" ]; then functions_tfvars_digest_switch=(-ExpectedTerraformVariablesSha256 "$${EXPECTED_TFVARS_SHA256}"); fi
+            pwsh -NoLogo -NoProfile -File "$${workdir}/release/scripts/deploy.ps1" -Environment "$${reviewed_environment}" -ReleaseManifest "$${workdir}/release-manifest.json" -ExpectedSourceSha256 "$${EXPECTED_SHA256}" -ExpectedManifestSha256 "$${EXPECTED_MANIFEST_SHA256}" "$${functions_tfvars_digest_switch[@]}" -SourceCommit "$${SOURCE_COMMIT}" -ExpectedDeployerImageDigest "$${DEPLOYER_IMAGE_DIGEST}" -TerraformVariablesFile "$${reviewed_tfvars_path}" -TerraformBackendBucket "$${reviewed_backend_bucket}" -TerraformBackendKey "$${reviewed_backend_key}" -TerraformBackendLockKey "$${reviewed_backend_lock_key}" -TerraformBackendRegion "$${reviewed_backend_region}" "$${apply_switch[@]}"
   YAML
   # This is the exact buildspec passed to each aws_codebuild_project.deploy
   # source block below. Tests render this local through Terraform, then run
   # the resulting shell bootstrap with mocked process dependencies.
   rendered_deployment_buildspecs = {
-    for key, deployment in var.deployments : key => replace(replace(replace(replace(replace(replace(replace(
+    for key, deployment in var.deployments : key => replace(replace(replace(replace(replace(replace(replace(replace(
       local.inline_deployment_buildspec_template,
       "__DEPLOYMENT_ENVIRONMENT__", deployment.environment),
+      "__REPOSITORY__", deployment.repository),
       "__TERRAFORM_BACKEND_BUCKET__", var.state_bucket_name),
       "__TERRAFORM_BACKEND_KEY__", deployment.terraform_state_key),
       "__TERRAFORM_BACKEND_LOCK_KEY__", "${deployment.terraform_state_key}.tflock"),
