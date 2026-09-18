@@ -27,7 +27,7 @@ run "only_staging_app_can_use_the_application_shared_lock" {
       Effect   = "Allow"
       Action   = ["s3:GetObject", "s3:DeleteObject"]
       Resource = "arn:aws:s3:::oficina-phase3-state-example/deployment-locks/shared-foundation.json"
-    } && one([for statement in jsondecode(local.executor_permission_profile_documents["app_staging"]).statements : statement if statement.Sid == "AcquireApplicationSharedFoundationLockConditionally"]) == {
+      } && one([for statement in jsondecode(local.executor_permission_profile_documents["app_staging"]).statements : statement if statement.Sid == "AcquireApplicationSharedFoundationLockConditionally"]) == {
       Sid       = "AcquireApplicationSharedFoundationLockConditionally"
       Effect    = "Allow"
       Action    = "s3:PutObject"
@@ -37,7 +37,7 @@ run "only_staging_app_can_use_the_application_shared_lock" {
     error_message = "The APP staging executor must own only the exact shared lock object, with conditional acquisition and owner-checked release operations."
   }
   assert {
-    condition = alltrue([for key, policy in local.executor_permission_profile_documents : !strcontains(policy, "ReadAndReleaseApplicationSharedFoundationLock") && !strcontains(policy, "AcquireApplicationSharedFoundationLockConditionally") if key != "app_staging"])
+    condition     = alltrue([for key, policy in local.executor_permission_profile_documents : !strcontains(policy, "ReadAndReleaseApplicationSharedFoundationLock") && !strcontains(policy, "AcquireApplicationSharedFoundationLockConditionally") if key != "app_staging"])
     error_message = "The application shared lock must not be available to APP production or any other repository/environment executor."
   }
 }
