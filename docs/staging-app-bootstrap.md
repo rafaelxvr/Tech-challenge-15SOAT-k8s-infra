@@ -34,7 +34,7 @@ The renderer uses local Terraform `console`/`yamldecode` in an isolated empty te
 
 `app-workload-staging.receipt.json` records `platformManifestSha256`, `stagingWorkloadSha256`, staging environment, APP image, IRSA reference and `RENDERED_ONLY`. Copy `stagingWorkloadSha256` into the separately reviewed APP release and provide the bundle as its `-StagingWorkloadFile`. The receipt binds bytes, not deployment authorization or source provenance; include the reviewed K8S source commit and input evidence in the release review.
 
-**Do not apply the entire List directly.** The APP adapter creates SA/Deployment with zero writers, runs migration, waits for rollout, and only then restores the HPA. `APP_DEPLOYMENT_DISABLED` in the APP executor remains an external activation boundary.
+**Do not apply the entire List directly.** The APP adapter creates SA/Deployment with zero writers, runs migration, waits for rollout, and only then restores the HPA. The platform executor may invoke this adapter only for staging when the exact versioned platform/workload/cloud-window documents and source archive are hash-bound to the release manifest; production remains fail-closed.
 
 ## Remaining external inputs and verification
 

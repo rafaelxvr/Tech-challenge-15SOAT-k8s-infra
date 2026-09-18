@@ -120,6 +120,22 @@ case "$key" in
   "$SOURCE_KEY") source="$HARNESS_BUNDLE" ;;
   "$RELEASE_MANIFEST_KEY") source="$HARNESS_MANIFEST" ;;
   "$TFVARS_OBJECT_KEY") source="$HARNESS_TFVARS" ;;
+  "${PLATFORM_INPUTS_OBJECT_KEY:-}") source="$HARNESS_PLATFORM" ;;
+  "${STAGING_WORKLOAD_OBJECT_KEY:-}") source="$HARNESS_WORKLOAD" ;;
+  "${CLOUD_WINDOW_OBJECT_KEY:-}") source="$HARNESS_CLOUD_WINDOW" ;;
+  "")
+    if [ "${1:-}" = "eks" ] && [ "${2:-}" = "update-kubeconfig" ]; then
+      kubeconfig=""
+      for ((i=1; i<=$#; i++)); do
+        if [ "${!i}" = "--kubeconfig" ]; then j=$((i+1)); kubeconfig="${!j}"; fi
+      done
+      test -n "$kubeconfig" || { echo 'kubeconfig path was not supplied.' >&2; exit 66; }
+      printf '%s\n' 'apiVersion: v1' > "$kubeconfig"
+      exit 0
+    fi
+    echo "unexpected mock AWS command: $*" >&2
+    exit 64
+    ;;
   *) echo "unexpected mock S3 key: $key" >&2; exit 64 ;;
 esac
 test -d "$(dirname "$destination")" || { echo 'Download destination parent is missing.' >&2; exit 65; }
@@ -165,7 +181,7 @@ printf '%s\n' "$*" >> "$CAPTURE_FILE"
     }
     $runner = Join-Path $temp 'run-rendered-bootstrap.sh'; Set-Content -LiteralPath $runner -NoNewline -Value $script
 
-    $overrideNames = @('DEPLOY_ENVIRONMENT', 'TERRAFORM_BACKEND_BUCKET', 'TERRAFORM_BACKEND_KEY', 'TERRAFORM_BACKEND_LOCK_KEY', 'TERRAFORM_BACKEND_REGION', 'SOURCE_BUCKET', 'SOURCE_KEY', 'SOURCE_VERSION_ID', 'EXPECTED_SHA256', 'RELEASE_MANIFEST_KEY', 'RELEASE_MANIFEST_VERSION_ID', 'EXPECTED_MANIFEST_SHA256', 'SOURCE_COMMIT', 'DEPLOYER_IMAGE_DIGEST', 'DEPLOYMENT_TFVARS_PATH', 'DEPLOYMENT_MODE', 'TFVARS_OBJECT_KEY', 'TFVARS_VERSION_ID', 'EXPECTED_TFVARS_SHA256', 'HARNESS_BUNDLE', 'HARNESS_MANIFEST', 'HARNESS_TFVARS', 'CAPTURE_FILE', 'PWSH_CAPTURE_FILE', 'HARNESS_REAL_PWSH')
+    $overrideNames = @('DEPLOY_ENVIRONMENT', 'TERRAFORM_BACKEND_BUCKET', 'TERRAFORM_BACKEND_KEY', 'TERRAFORM_BACKEND_LOCK_KEY', 'TERRAFORM_BACKEND_REGION', 'SOURCE_BUCKET', 'SOURCE_KEY', 'SOURCE_VERSION_ID', 'EXPECTED_SHA256', 'RELEASE_MANIFEST_KEY', 'RELEASE_MANIFEST_VERSION_ID', 'EXPECTED_MANIFEST_SHA256', 'SOURCE_COMMIT', 'DEPLOYER_IMAGE_DIGEST', 'DEPLOYMENT_TFVARS_PATH', 'DEPLOYMENT_MODE', 'TFVARS_OBJECT_KEY', 'TFVARS_VERSION_ID', 'EXPECTED_TFVARS_SHA256', 'PLATFORM_INPUTS_OBJECT_KEY', 'PLATFORM_INPUTS_VERSION_ID', 'STAGING_WORKLOAD_OBJECT_KEY', 'STAGING_WORKLOAD_VERSION_ID', 'CLOUD_WINDOW_OBJECT_KEY', 'CLOUD_WINDOW_VERSION_ID', 'HARNESS_BUNDLE', 'HARNESS_MANIFEST', 'HARNESS_TFVARS', 'HARNESS_PLATFORM', 'HARNESS_WORKLOAD', 'HARNESS_CLOUD_WINDOW', 'CAPTURE_FILE', 'PWSH_CAPTURE_FILE', 'HARNESS_REAL_PWSH', 'APP_DEPLOY_CAPTURE')
     $original = @{}
     foreach ($name in $overrideNames) { $original[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
     try {
@@ -189,6 +205,97 @@ printf '%s\n' "$*" >> "$CAPTURE_FILE"
         & $shell $runner 2>$null
         Assert-True ($LASTEXITCODE -ne 0) 'A mismatched DEPLOY_ENVIRONMENT override must fail in the rendered bootstrap.'
         Assert-True (-not (Test-Path -LiteralPath $capture -PathType Leaf)) 'A mismatched DEPLOY_ENVIRONMENT override reached Terraform.'
+
+        # The APP staging adapter receives three additional immutable documents.
+        # Keep this fixture local and execute the rendered shell with mocked AWS
+        # and deploy scripts so missing and altered documents are both proven to
+        # fail before the adapter can run.
+        $appBuildspec = $renderedBuildspecs.PSObject.Properties['app_staging'].Value
+        Assert-True ($appBuildspec.Contains('PLATFORM_INPUTS_OBJECT_KEY') -and
+            $appBuildspec.Contains('STAGING_WORKLOAD_OBJECT_KEY') -and
+            $appBuildspec.Contains('CLOUD_WINDOW_OBJECT_KEY')) 'APP staging bootstrap must require all reviewed input object overrides.'
+        Assert-True ($appBuildspec.Contains('platformInputsSha256') -and
+            $appBuildspec.Contains('stagingWorkloadSha256') -and
+            $appBuildspec.Contains('cloudWindowEvidenceSha256')) 'APP staging bootstrap must bind all input hashes to the release manifest.'
+        Assert-True ($appBuildspec.Contains('eks update-kubeconfig') -and
+            $appBuildspec.Contains('-PlatformInputsFile') -and
+            $appBuildspec.Contains('-StagingWorkloadFile') -and
+            $appBuildspec.Contains('-CloudWindowEvidenceFile')) 'APP staging bootstrap must configure the reviewed EKS context and pass fixed document paths.'
+
+        $appBundleRoot = Join-Path $temp 'app-bundle-root'
+        New-Item -ItemType Directory -Path (Join-Path $appBundleRoot 'scripts') -Force | Out-Null
+        $appDeployStub = @'
+[CmdletBinding()]
+param(
+    [string]$Environment, [string]$ReleaseManifest, [string]$ExpectedSourceSha256,
+    [string]$ExpectedManifestSha256, [string]$PlatformInputsFile,
+    [string]$StagingWorkloadFile, [string]$CloudWindowEvidenceFile,
+    [string]$StateBucket, [string]$SourceArchiveFile, [string]$SourceKey,
+    [string]$SourceCommit, [string]$ExpectedDeployerImageDigest,
+    [string]$TerraformVariablesFile, [string]$TerraformBackendBucket,
+    [string]$TerraformBackendKey, [string]$TerraformBackendLockKey,
+    [string]$TerraformBackendRegion, [switch]$ApplyReviewedPlan
+)
+Set-Content -LiteralPath $env:APP_DEPLOY_CAPTURE -Value ($PSBoundParameters | ConvertTo-Json -Compress) -NoNewline
+'@
+        Set-Content -LiteralPath (Join-Path $appBundleRoot 'scripts/deploy.ps1') -Value $appDeployStub -NoNewline
+        $appBundle = Join-Path $temp 'app-bundle.zip'
+        Compress-Archive -Path (Join-Path $appBundleRoot '*') -DestinationPath $appBundle
+        $appSourceSha = Hash $appBundle
+        $appPlatform = Join-Path $temp 'app-platform.json'; '{"Environment":"staging","Image":"fixture"}' | Set-Content -LiteralPath $appPlatform -NoNewline
+        $appWorkload = Join-Path $temp 'app-workload.json'; '{"kind":"List","items":[]}' | Set-Content -LiteralPath $appWorkload -NoNewline
+        $appCloudWindow = Join-Path $temp 'app-cloud-window.json'; '{"environment":"staging","billingBeyondFreeCreditsAcknowledged":true}' | Set-Content -LiteralPath $appCloudWindow -NoNewline
+        $appPlatformSha = Hash $appPlatform
+        $appWorkloadSha = Hash $appWorkload
+        $appCloudWindowSha = Hash $appCloudWindow
+        $appManifest = Join-Path $temp 'app-release-manifest.json'
+        @{
+            schemaVersion = 1; environment = 'staging'; sourceCommit = ('c' * 40); artifactSha256 = $appSourceSha
+            deployerImageDigest = ('sha256:' + ('b' * 64)); contractVersion = 'phase3-v2'; migrationVersion = 'platform-v1'
+            promotedFromStaging = $false; platformInputsSha256 = $appPlatformSha; stagingWorkloadSha256 = $appWorkloadSha
+            cloudWindowEvidenceSha256 = $appCloudWindowSha; kubeContext = 'arn:aws:eks:us-east-1:123456789012:cluster/oficina'
+        } | ConvertTo-Json | Set-Content -LiteralPath $appManifest -NoNewline
+        $appManifestSha = Hash $appManifest
+        $appBuildspecLines = $appBuildspec -split "`r?`n"
+        $appStart = [array]::FindIndex([string[]]$appBuildspecLines, [Predicate[string]]{ param($line) $line -match '^\s+set -euo pipefail$' })
+        if ($appStart -lt 0) { Fail 'Rendered APP staging bootstrap has no shell command block.' }
+        $appBootstrap = (@($appBuildspecLines[$appStart..($appBuildspecLines.Length - 1)] | ForEach-Object { $_ -replace '^\s{12}', '' }) -join "`n")
+        $appBootstrapPath = Join-Path $temp 'rendered-app-bootstrap.sh'; Set-Content -LiteralPath $appBootstrapPath -NoNewline -Value $appBootstrap
+        $appScriptPath = $appBootstrapPath.Replace('\', '/')
+        $appRunner = Join-Path $temp 'run-rendered-app-bootstrap.sh'
+        $appScript = if ($runningOnWindows) {
+            'export PATH="$(cygpath -u ' + (Write-BashSingleQuoted $binPath) + '):$PATH"' + "`n" + 'exec /usr/bin/bash "$(cygpath -u ' + (Write-BashSingleQuoted $appScriptPath) + ')"' + "`n"
+        }
+        else {
+            'export PATH=' + (Write-BashSingleQuoted $binPath) + ':$PATH' + "`n" + 'exec ' + (Write-BashSingleQuoted $shell) + ' ' + (Write-BashSingleQuoted $appScriptPath) + "`n"
+        }
+        Set-Content -LiteralPath $appRunner -NoNewline -Value $appScript
+        $appInputPrefix = 'releases/app/staging/inputs/' + ('c' * 40)
+        $env:DEPLOY_ENVIRONMENT = 'staging'; $env:SOURCE_BUCKET = 'harness-artifacts'; $env:SOURCE_KEY = 'releases/app/staging/bundle.zip'; $env:SOURCE_VERSION_ID = 'app-bundle-version'; $env:EXPECTED_SHA256 = $appSourceSha
+        $env:RELEASE_MANIFEST_KEY = ('releases/app/staging/manifests/' + ('c' * 40) + '.json'); $env:RELEASE_MANIFEST_VERSION_ID = 'app-manifest-version'; $env:EXPECTED_MANIFEST_SHA256 = $appManifestSha
+        $env:SOURCE_COMMIT = ('c' * 40); $env:DEPLOYER_IMAGE_DIGEST = ('sha256:' + ('b' * 64)); $env:DEPLOYMENT_TFVARS_PATH = '/tmp/oficina/app_staging.tfvars.json'; $env:DEPLOYMENT_MODE = 'plan'
+        $env:TFVARS_OBJECT_KEY = ('releases/app/staging/config/' + ('c' * 40) + '.tfvars.json'); $env:TFVARS_VERSION_ID = 'app-tfvars-version'; $env:EXPECTED_TFVARS_SHA256 = $tfvarsSha
+        $env:PLATFORM_INPUTS_OBJECT_KEY = "$appInputPrefix/platform.json"; $env:PLATFORM_INPUTS_VERSION_ID = 'platform-version'
+        $env:STAGING_WORKLOAD_OBJECT_KEY = "$appInputPrefix/workload.json"; $env:STAGING_WORKLOAD_VERSION_ID = 'workload-version'
+        $env:CLOUD_WINDOW_OBJECT_KEY = "$appInputPrefix/cloud-window.json"; $env:CLOUD_WINDOW_VERSION_ID = 'cloud-window-version'
+        $env:HARNESS_BUNDLE = $appBundle; $env:HARNESS_MANIFEST = $appManifest; $env:HARNESS_TFVARS = $tfvarsInput; $env:HARNESS_PLATFORM = $appPlatform; $env:HARNESS_WORKLOAD = $appWorkload; $env:HARNESS_CLOUD_WINDOW = $appCloudWindow; $env:PWSH_CAPTURE_FILE = (Join-Path $temp 'app-pwsh-capture.txt'); $env:APP_DEPLOY_CAPTURE = (Join-Path $temp 'app-deploy-capture.txt')
+
+        Remove-Item -LiteralPath Env:PLATFORM_INPUTS_OBJECT_KEY
+        & $shell $appRunner 2>$null
+        Assert-True ($LASTEXITCODE -ne 0) 'APP staging bootstrap must reject a missing platform-input document override.'
+
+        $env:PLATFORM_INPUTS_OBJECT_KEY = "$appInputPrefix/platform.json"
+        $alteredPlatform = Join-Path $temp 'altered-app-platform.json'; '{"Environment":"staging","Image":"altered"}' | Set-Content -LiteralPath $alteredPlatform -NoNewline
+        $env:HARNESS_PLATFORM = $alteredPlatform
+        & $shell $appRunner 2>$null
+        Assert-True ($LASTEXITCODE -ne 0) 'APP staging bootstrap must reject an altered platform-input document.'
+
+        $env:HARNESS_PLATFORM = $appPlatform
+        $appRunOutput = & $shell $appRunner 2>&1
+        if ($LASTEXITCODE -ne 0) { $appRunOutput | Write-Output }
+        Assert-True ($LASTEXITCODE -eq 0) 'APP staging bootstrap must accept the reviewed, hash-matched document set.'
+        $appPwshCalls = Get-Content -LiteralPath $env:PWSH_CAPTURE_FILE -Raw
+        Assert-True ($appPwshCalls.Contains('-PlatformInputsFile') -and $appPwshCalls.Contains('-StagingWorkloadFile') -and $appPwshCalls.Contains('-CloudWindowEvidenceFile') -and $appPwshCalls.Contains('-StateBucket oficina-phase3-state-example') -and $appPwshCalls.Contains('-SourceArchiveFile') -and $appPwshCalls.Contains('-SourceKey releases/app/staging/bundle.zip')) 'APP staging bootstrap must pass only the reviewed local document and source paths to deploy.ps1.'
     }
     finally {
         foreach ($name in $overrideNames) {
@@ -196,7 +303,7 @@ printf '%s\n' "$*" >> "$CAPTURE_FILE"
             else { Set-Item -LiteralPath "Env:$name" -Value $original[$name] }
         }
     }
-    Write-Output 'PASS: Terraform-rendered CodeBuild bootstrap ignores backend/mode/tfvars StartBuild overrides and rejects mismatched environments before Terraform.'
+    Write-Output 'PASS: Terraform-rendered CodeBuild bootstrap preserves backend/mode/tfvars guards and rejects missing or altered APP staging documents before rollout.'
     exit 0
 }
 finally { Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue }
