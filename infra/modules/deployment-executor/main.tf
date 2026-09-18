@@ -290,6 +290,14 @@ locals {
           } }
         },
         {
+          Sid    = "ReadOnlyEnvironmentEventSourceMappingTags"
+          Effect = "Allow"
+          Action = ["lambda:ListTags"]
+          # Lambda tag reads address generated event-source mapping ARNs and
+          # therefore cannot use the function ARN condition above.
+          Resource = "arn:aws:lambda:${var.aws_region}:${var.account_id}:event-source-mapping:*"
+        },
+        {
           Sid      = "ManageOnlyEnvironmentFunctionInvokePermissions"
           Effect   = "Allow"
           Action   = ["lambda:AddPermission", "lambda:RemovePermission", "lambda:GetPolicy"]

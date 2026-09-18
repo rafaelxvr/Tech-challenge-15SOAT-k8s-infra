@@ -272,6 +272,12 @@ run "eight_bounded_private_deployers" {
         Condition = { ArnEquals = {
           "lambda:FunctionArn" = "arn:aws:lambda:us-east-1:123456789012:function:oficina-phase3-${environment}-notification"
         } }
+      } &&
+      one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "ReadOnlyEnvironmentEventSourceMappingTags"]) == {
+        Sid      = "ReadOnlyEnvironmentEventSourceMappingTags"
+        Effect   = "Allow"
+        Action   = ["lambda:ListTags"]
+        Resource = "arn:aws:lambda:us-east-1:123456789012:event-source-mapping:*"
       }
     ])
     error_message = "Functions executors must manage only the reviewed Lambda invoke, pinned New Relic layer and API Gateway v2 binding resources."
