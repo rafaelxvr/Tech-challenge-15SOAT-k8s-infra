@@ -1,0 +1,27 @@
+# Append only to the staging Role; the shared base and production stay unchanged.
+- op: add
+  path: /rules/-
+  value:
+    apiGroups: [""]
+    resources: ["serviceaccounts"]
+    resourceNames: ["oficina-app"]
+    verbs: ["get"]
+- op: add
+  path: /rules/-
+  value:
+    apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["create"]
+- op: add
+  path: /rules/-
+  value:
+    apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create"]
+- op: add
+  path: /rules/-
+  value:
+    apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    resourceNames: ["oficina-app"]
+    verbs: ["delete"]
