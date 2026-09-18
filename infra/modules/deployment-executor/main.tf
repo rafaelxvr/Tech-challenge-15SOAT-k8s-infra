@@ -453,6 +453,17 @@ locals {
           Effect   = "Allow"
           Action   = ["ecr:DescribeImages", "ecr:BatchGetImage"]
           Resource = "arn:aws:ecr:${var.aws_region}:${var.account_id}:repository/${var.name}-app"
+          }] : [], deployment.repository == "oficina-app" && deployment.environment == "staging" ? [{
+          Sid      = "ReadAndReleaseApplicationSharedFoundationLock"
+          Effect   = "Allow"
+          Action   = ["s3:GetObject", "s3:DeleteObject"]
+          Resource = "arn:aws:s3:::${var.state_bucket_name}/deployment-locks/shared-foundation.json"
+          }] : [], deployment.repository == "oficina-app" && deployment.environment == "staging" ? [{
+          Sid       = "AcquireApplicationSharedFoundationLockConditionally"
+          Effect    = "Allow"
+          Action    = "s3:PutObject"
+          Resource  = "arn:aws:s3:::${var.state_bucket_name}/deployment-locks/shared-foundation.json"
+          Condition = { StringEquals = { "s3:if-none-match" = "*" } }
           }] : [], flatten([for _ in(deployment.repository == "oficina-app" && deployment.environment == "staging" && contains(keys(var.application_bootstrap_secret_refs), "staging") ? [true] : []) : [
             {
               Sid       = "ReadOnlyReviewedApplicationBootstrapSecrets"

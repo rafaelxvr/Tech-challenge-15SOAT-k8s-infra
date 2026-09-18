@@ -11,9 +11,10 @@ The staging overlay appends exactly these rules to the existing namespaced `ofic
 | core `serviceaccounts` | `get` | `oficina-app` |
 | core `serviceaccounts` | `create` | Namespace-scoped; Kubernetes cannot restrict create using `resourceNames` |
 | batch `jobs` | `get`, `list`, `watch`, `create` | Namespace-scoped; migration Job names include the reviewed release digest |
+| core `pods/log` | `get` | Namespace-scoped pod log subresource; needed only for the reviewed migration receipt |
 | autoscaling `horizontalpodautoscalers` | `delete` | `oficina-app` |
 
-The Job reads support `kubectl wait` and completion readback; the HPA delete supports draining existing FirstWriter workloads. There are no new Secret reads, role/rolebinding mutations, Job deletion, service-account updates or wildcard grants. The existing RoleBinding still selects the reviewed `DeployerPrincipalArn`; the operator must bind the actual APP executor identity rather than assume the platform executor identity is interchangeable.
+The Job reads support `kubectl wait` and completion readback; the pod-log read supports the bounded bootstrap receipt; the HPA delete supports draining existing FirstWriter workloads. There are no new Secret reads, role/rolebinding mutations, Job deletion, service-account updates or wildcard grants. The existing RoleBinding still selects the reviewed `DeployerPrincipalArn`; the operator must bind the actual APP executor identity rather than assume the platform executor identity is interchangeable.
 
 Namespace-wide SA/Job creation is a material RBAC boundary: a trusted executor holding these permissions can create objects beyond this adapter's fixed names. The adapter only creates the reviewed APP service account and migration Job. If policy requires server-side restrictions on names, images or service-account selection, review corresponding admission policy before activation; this patch does not claim RBAC enforces those fields.
 
