@@ -11,6 +11,15 @@ function Reject([scriptblock]$Action) { try { & $Action | Out-Null } catch { $sc
 function Hash([string]$Path) { (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() }
 function aws { throw 'Offline contract forbids AWS.' }
 function Assert-RuntimeIdentity([object]$Pod) {
+    foreach($entry in $Pod.containers[0].env) {
+        if($null -ne $entry.PSObject.Properties['value']) {
+            Assert ($entry.value -is [string]) "Kubernetes env value must remain a string: $($entry.name)."
+        }
+    }
+    $account=@($Pod.containers[0].env | Where-Object name -CEQ 'NEW_RELIC_ACCOUNT_ID')
+    Assert ($account.Count -eq 1 -and $account[0].value -ceq '1234567') 'New Relic account ID must preserve the reviewed string value.'
+    $endpoint=@($Pod.containers[0].env | Where-Object name -CEQ 'NEW_RELIC_EVENT_ENDPOINT')
+    Assert ($endpoint[0].value -ceq 'https://insights-collector.newrelic.com/v1/accounts/1234567/events') 'Quoting the account scalar must not introduce quotes inside its endpoint URL.'
     Assert ($Pod.securityContext.runAsUser -eq 10001 -and $Pod.securityContext.runAsGroup -eq 10001 -and $Pod.securityContext.fsGroup -eq 10001) 'Pod UID, primary GID and mounted-volume group must match the APP image identity 10001.'
     Assert ($Pod.securityContext.runAsNonRoot -eq $true -and $Pod.securityContext.seccompProfile.type -ceq 'RuntimeDefault') 'Explicit identity must preserve nonroot and runtime-default seccomp.'
     $container=$Pod.containers[0].securityContext
