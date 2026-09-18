@@ -31,7 +31,7 @@ foreach ($entry in @(@{Arn=$AppSecretArn; Name='app'}, @{Arn=$AuthorizerTrustSec
     if ($entry.Arn -cnotmatch ("\Aarn:aws:secretsmanager:us-east-1:${accountId}:secret:oficina/${Environment}/" + $entry.Name + '-[A-Za-z0-9]{6}\z')) { throw 'Runtime secrets must be the exact approved same-account environment references.' }
 }
 if ($DbHost -cnotmatch '\A[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\z') { throw 'Database host must be a DNS hostname without a port, URL or whitespace.' }
-if ($NewRelicAccountId -notmatch '^[1-9][0-9]{0,15}$') { throw 'NewRelicAccountId must be a nonsecret positive account identifier.' }
+if ($NewRelicAccountId -notmatch '\A[1-9][0-9]{0,15}\z') { throw 'NewRelicAccountId must be a nonsecret positive account identifier.' }
 foreach ($cidr in @($DbCidr, $AlbSubnetCidrOne, $AlbSubnetCidrTwo)) {
     if ($cidr -notmatch '^([0-9]{1,3}\.){3}[0-9]{1,3}/([0-9]|[12][0-9]|3[0-2])$') { throw 'Database and ALB subnet inputs must be CIDR blocks.' }
 }
@@ -41,6 +41,11 @@ $overlay = Join-Path $repoRoot "k8s/platform/overlays/$Environment"
 $kubectl = Get-Command kubectl -ErrorAction Stop
 $rendered = & $kubectl.Source kustomize $overlay
 if ($LASTEXITCODE -ne 0) { throw 'kubectl kustomize failed.' }
+# Kustomize emits this placeholder as an unquoted string. Quote the complete
+# env scalar before numeric substitution; embedded URL tokens stay unchanged.
+$rendered = @($rendered | ForEach-Object {
+    $_ -replace '^(\s*value:\s*)\$\{NEW_RELIC_ACCOUNT_ID\}\s*$', '$1"${NEW_RELIC_ACCOUNT_ID}"'
+})
 
 $tokens = [ordered]@{
     '${APP_IMAGE}'               = $Image

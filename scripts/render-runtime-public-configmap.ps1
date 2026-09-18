@@ -6,6 +6,7 @@ param(
     [Parameter(Mandatory)] [string]$NotificationQueueUrl,
     [Parameter(Mandatory)] [string]$HistoryZone,
     [Parameter(Mandatory)] [string]$RdsCaFile,
+    [Parameter(Mandatory)] [ValidatePattern('\A[a-f0-9]{64}\z')] [string]$ExpectedRdsCaSha256,
     [Parameter(Mandatory)] [string]$OutputDirectory
 )
 
@@ -70,9 +71,12 @@ function Read-CustomerPublicKeys {
 
 function Read-RdsCa {
     if (-not (Test-Path -LiteralPath $RdsCaFile -PathType Leaf)) { throw 'RDS CA file does not exist.' }
-    $file = Get-Item -LiteralPath $RdsCaFile
-    if ($file.Length -ge 65536) { throw 'RDS CA bundle is 64 KiB or larger.' }
-    $content = Read-RequiredFile -Path $RdsCaFile -Label 'RDS CA file'
+    $bytes = [IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $RdsCaFile))
+    if ($bytes.Length -ge 65536) { throw 'RDS CA bundle is 64 KiB or larger.' }
+    $actualHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
+    if ($actualHash -cne $ExpectedRdsCaSha256) { throw 'RDS CA bytes do not match the reviewed bootstrap CA SHA-256.' }
+    if ($bytes.Where({ $_ -gt 127 }).Count -gt 0) { throw 'RDS CA must be ASCII PEM without an encoding BOM.' }
+    $content = [Text.Encoding]::ASCII.GetString($bytes)
     $pemPattern = '(?ms)^-----BEGIN CERTIFICATE-----\r?\n(?<body>[A-Za-z0-9+/=\r\n]+?)\r?\n-----END CERTIFICATE-----\r?$'
     $matches = [regex]::Matches($content, $pemPattern)
     if ($matches.Count -eq 0 -or ([regex]::Replace($content, $pemPattern, '').Trim().Length -ne 0)) { throw 'RDS CA file must contain only PEM certificates.' }
@@ -81,7 +85,7 @@ function Read-RdsCa {
         $certificate = $null
         try { $certificate = [Security.Cryptography.X509Certificates.X509Certificate2]::new($der) } catch { throw 'RDS CA certificate is not structurally valid.' } finally { if ($null -ne $certificate) { $certificate.Dispose() } }
     }
-    return $content.TrimEnd("`r", "`n")
+    return $content
 }
 
 function Assert-SafeScalar {
@@ -96,6 +100,9 @@ if ($HistoryZone -notmatch '^[A-Za-z0-9_./+:-]+$') { throw 'HistoryZone must be 
 
 $customerPublicKeys = Read-CustomerPublicKeys
 $rdsCa = Read-RdsCa
+# JSON quoted scalars are valid YAML and preserve CRLF/LF and trailing newlines.
+# Kubernetes mounts these exact UTF-8 bytes, matching the reviewed bootstrap hash.
+$rdsCaScalar = ConvertTo-Json -InputObject $rdsCa -Compress
 $indent = { param([string]$Value) ($Value -split "`r?`n" | ForEach-Object { "    $_" }) -join "`n" }
 $configMap = @"
 apiVersion: v1
@@ -116,8 +123,7 @@ $(& $indent $customerPublicKeys)
   customer-audience: 'oficina-$Environment-api'
   notification-queue-url: '$NotificationQueueUrl'
   history-zone: '$HistoryZone'
-  rds-ca.pem: |
-$(& $indent $rdsCa)
+  rds-ca.pem: $rdsCaScalar
 "@
 
 if ($configMap -match '(?i)PRIVATE KEY|STAFF_HMAC|JWT_SECRET|PASSWORD|CLIENT_SECRET|ACCESS_KEY|SECRET_KEY|stringData:') { throw 'Rendered runtime-public ConfigMap contains secret material.' }

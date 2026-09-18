@@ -54,6 +54,7 @@ The handoff can be rendered for review without cluster or AWS access:
   -StaffKeyId 'staff-YYYY-MM' `
   -NotificationQueueUrl 'https://sqs.us-east-1.amazonaws.com/ACCOUNT/oficina-phase3-staging-notifications.fifo' `
   -HistoryZone 'UTC' -RdsCaFile .\reviewed\us-east-1-bundle.pem `
+  -ExpectedRdsCaSha256 'REVIEWED_BOOTSTRAP_CA_SHA256' `
   -OutputDirectory .rendered
 ```
 
@@ -65,7 +66,15 @@ The renderer accepts only reviewed public key and CA files plus explicit non-sec
 | `staff-issuer`, `staff-audience`, `staff-key-id` | Exact environment-specific staff trust settings shared with the authorizer. |
 | `customer-issuer`, `customer-audience` | Exact environment-specific customer trust settings shared with the signer/authorizer. |
 | `notification-queue-url`, `history-zone` | That environment's reviewed FIFO queue URL; proven legacy timestamp compatibility zone (UTC only for a fresh synthetic installation). |
-| `rds-ca.pem` | Regional public RDS CA bundle, pinned and verified during release packaging. |
+| `rds-ca.pem` | Regional public RDS CA bundle, pinned by `ExpectedRdsCaSha256` to the bootstrap review's CA hash. ASCII PEM bytes, including CRLF/LF and trailing newlines, are preserved in the mounted ConfigMap value. BOM-encoded files and mismatched hashes are rejected before output. |
+
+Use the independently reviewed bootstrap CA hash as the renderer input; do not
+derive a new accepted hash from a divergent candidate file. The renderer emits
+the CA as a JSON-quoted YAML scalar so parsing cannot normalize its line endings
+or remove its final newline. Re-render and review both artifact hashes after a
+renderer change. Existing published artifacts remain immutable. The platform
+renderer likewise quotes numeric New Relic account IDs explicitly so Kubernetes
+receives a string-valued environment variable.
 
 Install new customer public keys before activating the corresponding signer kid and retain old keys for the reviewed overlap. The CSI provider projects only `STAFF_HMAC_SECRET` from the existing approved authorizer-trust bundle into the separate `oficina-staff-jwt` Kubernetes Secret. Customer private signing material is never referenced. This reuses the approved secret inventory; it creates no AWS secret. The APP runtime credential secret retains its existing `username`/`password` JSON contract; never supply the master or migration credential ARN.
 
