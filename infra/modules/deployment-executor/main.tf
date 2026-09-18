@@ -290,11 +290,11 @@ locals {
           } }
         },
         {
-          Sid    = "ReadOnlyEnvironmentEventSourceMappingTags"
+          Sid    = "ReadOnlyEnvironmentEventSourceMappingMetadata"
           Effect = "Allow"
-          Action = ["lambda:ListTags"]
-          # Lambda tag reads address generated event-source mapping ARNs and
-          # therefore cannot use the function ARN condition above.
+          Action = ["lambda:GetEventSourceMapping", "lambda:ListTags"]
+          # Lambda mapping metadata APIs address generated event-source
+          # mapping ARNs and cannot use the function ARN condition above.
           Resource = "arn:aws:lambda:${var.aws_region}:${var.account_id}:event-source-mapping:*"
         },
         {

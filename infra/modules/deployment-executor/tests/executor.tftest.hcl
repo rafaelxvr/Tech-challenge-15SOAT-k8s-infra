@@ -273,10 +273,10 @@ run "eight_bounded_private_deployers" {
           "lambda:FunctionArn" = "arn:aws:lambda:us-east-1:123456789012:function:oficina-phase3-${environment}-notification"
         } }
       } &&
-      one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "ReadOnlyEnvironmentEventSourceMappingTags"]) == {
-        Sid      = "ReadOnlyEnvironmentEventSourceMappingTags"
+      one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "ReadOnlyEnvironmentEventSourceMappingMetadata"]) == {
+        Sid      = "ReadOnlyEnvironmentEventSourceMappingMetadata"
         Effect   = "Allow"
-        Action   = ["lambda:ListTags"]
+        Action   = ["lambda:GetEventSourceMapping", "lambda:ListTags"]
         Resource = "arn:aws:lambda:us-east-1:123456789012:event-source-mapping:*"
       }
     ])
