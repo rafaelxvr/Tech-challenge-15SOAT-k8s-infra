@@ -10,7 +10,14 @@ $contractPath = Join-Path $repoRoot 'infra/modules/platform-environment/contract
 $handoffSchemaPath = Join-Path $repoRoot 'contracts/gateway-handoff.schema.json'
 $contract = Get-Content -LiteralPath $contractPath -Raw | ConvertFrom-Json
 $handoffSchema = Get-Content -LiteralPath $handoffSchemaPath -Raw | ConvertFrom-Json
-$contractHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $contractPath).Hash.ToLowerInvariant()
+$contractText = [IO.File]::ReadAllText($contractPath).Replace("`r`n", "`n")
+$sha256 = [Security.Cryptography.SHA256]::Create()
+try {
+    $contractHash = (-join ($sha256.ComputeHash([Text.Encoding]::UTF8.GetBytes($contractText)) | ForEach-Object { $_.ToString('x2') }))
+}
+finally {
+    $sha256.Dispose()
+}
 
 function Assert-Contains([string]$Text, [string]$Expected, [string]$Message) {
     if (-not $Text.Contains($Expected)) { throw $Message }

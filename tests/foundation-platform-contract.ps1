@@ -5,6 +5,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $foundation = Get-Content -LiteralPath (Join-Path $repoRoot 'infra/foundation/main.tf') -Raw
+$foundationAddons = Get-Content -LiteralPath (Join-Path $repoRoot 'infra/foundation-addons/main.tf') -Raw
 $platform = Get-Content -LiteralPath (Join-Path $repoRoot 'infra/modules/platform-environment/main.tf') -Raw
 $policy = Get-Content -LiteralPath (Join-Path $repoRoot 'k8s/platform/base/network-policies.yaml') -Raw
 
@@ -20,10 +21,10 @@ Assert-Contains $platform 'resource "aws_lb_listener_rule" "backend"' 'Each plat
 Assert-Contains $platform 'target_group_arn = aws_lb_target_group.app.arn' 'Listener rule must forward to its own environment target group.'
 Assert-Contains $foundation 'system:serviceaccount:kube-system:aws-load-balancer-controller' 'Load-balancer controller trust must name one exact service account.'
 foreach ($pin in @('version          = "1.12.0"', 'version          = "3.12.2"', 'version          = "1.4.8"', 'version          = "0.3.9"')) {
-    Assert-Contains $foundation $pin "Missing required pinned platform chart $pin."
+    Assert-Contains $foundationAddons $pin "Missing required pinned platform chart $pin."
 }
 foreach ($request in @('cpu = "100m", memory = "128Mi"', 'cpu = "50m", memory = "64Mi"')) {
-    Assert-Contains $foundation $request "Missing controller resource request $request."
+    Assert-Contains $foundationAddons $request "Missing controller resource request $request."
 }
 Assert-Contains $policy 'oficina.io/environment: ${ENVIRONMENT}' 'Actual app policy must allow only its own namespace label.'
 Assert-Contains $policy '${ALB_SUBNET_CIDR_ONE}' 'Actual app policy must permit the first ALB source subnet only.'
