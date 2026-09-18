@@ -448,21 +448,26 @@ locals {
           Action   = ["ecr:DescribeImages", "ecr:BatchGetImage"]
           Resource = "arn:aws:ecr:${var.aws_region}:${var.account_id}:repository/${var.name}-${deployment.environment}-*"
         }
-        ], flatten([for _ in(deployment.repository == "oficina-app" && deployment.environment == "staging" && contains(keys(var.application_bootstrap_secret_refs), "staging") ? [true] : []) : [
-          {
-            Sid       = "ReadOnlyReviewedApplicationBootstrapSecrets"
-            Effect    = "Allow"
-            Action    = ["secretsmanager:GetSecretValue"]
-            Resource  = [for key in ["master", "migration", "app", "auth", "notification"] : var.application_bootstrap_secret_refs.staging[key].arn]
-            Condition = { StringEquals = { "aws:RequestedRegion" = var.aws_region } }
-          },
-          {
-            Sid       = "DescribeOnlyReviewedApplicationBootstrapDatabase"
-            Effect    = "Allow"
-            Action    = ["rds:DescribeDBInstances"]
-            Resource  = var.application_bootstrap_secret_refs.staging.database_arn
-            Condition = { StringEquals = { "aws:RequestedRegion" = var.aws_region } }
-          }
+        ], deployment.repository == "oficina-app" && deployment.environment == "staging" ? [{
+          Sid      = "ReadOnlyStagingAppReleaseImages"
+          Effect   = "Allow"
+          Action   = ["ecr:DescribeImages", "ecr:BatchGetImage"]
+          Resource = "arn:aws:ecr:${var.aws_region}:${var.account_id}:repository/${var.name}-app"
+          }] : [], flatten([for _ in(deployment.repository == "oficina-app" && deployment.environment == "staging" && contains(keys(var.application_bootstrap_secret_refs), "staging") ? [true] : []) : [
+            {
+              Sid       = "ReadOnlyReviewedApplicationBootstrapSecrets"
+              Effect    = "Allow"
+              Action    = ["secretsmanager:GetSecretValue"]
+              Resource  = [for key in ["master", "migration", "app", "auth", "notification"] : var.application_bootstrap_secret_refs.staging[key].arn]
+              Condition = { StringEquals = { "aws:RequestedRegion" = var.aws_region } }
+            },
+            {
+              Sid       = "DescribeOnlyReviewedApplicationBootstrapDatabase"
+              Effect    = "Allow"
+              Action    = ["rds:DescribeDBInstances"]
+              Resource  = var.application_bootstrap_secret_refs.staging.database_arn
+              Condition = { StringEquals = { "aws:RequestedRegion" = var.aws_region } }
+            }
       ]]))
     })
   }

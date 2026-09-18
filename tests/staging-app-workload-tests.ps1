@@ -10,6 +10,13 @@ function Assert([bool]$Condition,[string]$Message) { if(-not $Condition){throw $
 function Reject([scriptblock]$Action) { try { & $Action | Out-Null } catch { $script:checks++; return }; throw 'Expected rejection.' }
 function Hash([string]$Path) { (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() }
 function aws { throw 'Offline contract forbids AWS.' }
+function Assert-RuntimeIdentity([object]$Pod) {
+    Assert ($Pod.securityContext.runAsUser -eq 10001 -and $Pod.securityContext.runAsGroup -eq 10001 -and $Pod.securityContext.fsGroup -eq 10001) 'Pod UID, primary GID and mounted-volume group must match the APP image identity 10001.'
+    Assert ($Pod.securityContext.runAsNonRoot -eq $true -and $Pod.securityContext.seccompProfile.type -ceq 'RuntimeDefault') 'Explicit identity must preserve nonroot and runtime-default seccomp.'
+    $container=$Pod.containers[0].securityContext
+    Assert ($container.allowPrivilegeEscalation -eq $false -and $container.readOnlyRootFilesystem -eq $true -and ($container.capabilities.drop -join ',') -ceq 'ALL') 'Container must retain privilege, filesystem and capability restrictions.'
+    Assert ($null -eq $container.PSObject.Properties['runAsUser'] -and $null -eq $container.PSObject.Properties['runAsGroup']) 'Container must inherit the reviewed pod UID/GID without overrides.'
+}
 try {
     $staging=& kubectl kustomize "$repo/k8s/platform/overlays/staging"
     if($LASTEXITCODE -ne 0){throw 'kustomize failed.'}
@@ -19,6 +26,8 @@ try {
         $inputs=@{Environment=$environment;Image=('123456789012.dkr.ecr.us-east-1.amazonaws.com/oficina-app@sha256:'+('a'*64));AppIrsaRoleArn="arn:aws:iam::123456789012:role/oficina-app-$environment";DeployerPrincipalArn='arn:aws:iam::123456789012:role/oficina-app-deploy';PlatformBindingPrincipalArn='arn:aws:iam::123456789012:role/oficina-platform-binding';DbHost='db.oficina.internal';DbCidr='10.20.0.0/24';AlbSubnetCidrOne='10.42.0.0/24';AlbSubnetCidrTwo='10.42.1.0/24';AppSecretArn="arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/$environment/app-AbCdEf";AuthorizerTrustSecretArn="arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/$environment/authorizer-trust-AbCdEf";NewRelicIngestSecretArn="arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/$environment/newrelic-ingest-AbCdEf";NewRelicAccountId='1234567';OutputDirectory=$temp}
         $path=& "$repo/scripts/render-platform.ps1" @inputs
         $documents=Read-PlatformManifest $path
+        $workload=@($documents | Where-Object kind -CEQ 'Deployment')[0]
+        Assert-RuntimeIdentity $workload.spec.template.spec
         $role=@($documents | Where-Object {$_.kind -ceq 'Role' -and $_.metadata.name -ceq 'oficina-release-deployer'})[0]
         $extras=@($role.rules | Where-Object { $_.resources -contains 'serviceaccounts' -or $_.resources -contains 'jobs' -or $_.verbs -contains 'delete' })
         if($environment -ceq 'production') {
@@ -52,6 +61,7 @@ try {
     Assert ($bundle.kind -ceq 'List' -and $bundle.items.Count -eq 3) 'APP bundle must contain only the three reviewed resources.'
     Assert (($bundle.items.kind -join ',') -ceq 'Deployment,ServiceAccount,HorizontalPodAutoscaler') 'Resource order must be deterministic.'
     $deployment=$bundle.items[0]; $pod=$deployment.spec.template.spec
+    Assert-RuntimeIdentity $pod
     Assert ($deployment.spec.replicas -eq 0 -and $deployment.spec.strategy.type -ceq 'Recreate') 'Bundle must not start writers before migration.'
     Assert ($pod.containers[0].image -cmatch '@sha256:[a-f0-9]{64}$' -and $pod.containers[0].resources.requests.memory -ceq '768Mi') 'Digest and platform capacity must be retained.'
     Assert ($pod.containers[0].readinessProbe.httpGet.path -ceq '/api/actuator/health/readiness' -and $pod.volumes.Count -eq 3) 'Platform probes and volumes must survive rendering.'

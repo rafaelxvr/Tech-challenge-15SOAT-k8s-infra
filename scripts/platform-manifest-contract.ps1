@@ -26,6 +26,9 @@ function Read-PlatformManifest([string]$Path) {
 
 function ConvertTo-OrderedPlatformValue([object]$Value) {
     if($null -eq $Value){return $null}
+    # Pipeline-wrapped JSON strings can also satisfy the PSCustomObject check.
+    # Keep scalar array entries such as capabilities.drop=["ALL"] as scalars.
+    if($Value -is [string] -or $Value.GetType().IsValueType){return $Value}
     if($Value -is [pscustomobject] -or $Value -is [System.Collections.IDictionary]) {
         $keys=[string[]]@(if($Value -is [pscustomobject]){$Value.PSObject.Properties | ForEach-Object Name}else{$Value.Keys})
         [Array]::Sort($keys,[StringComparer]::Ordinal)

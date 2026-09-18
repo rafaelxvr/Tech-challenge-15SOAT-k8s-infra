@@ -8,6 +8,23 @@ externally reviewed and unchanged.
 
 The renderer requires an immutable us-east-1 ECR image and infrastructure-reference inputs. It refuses unresolved placeholders, mutable images, unsafe substitutions, cross-account principals and cross-environment runtime secret references. No secret value is accepted or written: the app, authorizer-trust and ingest inputs are exact Secrets Manager references used by the CSI provider. The ECR account must match the reviewed workload account.
 
+Both APP overlays explicitly run with numeric UID/GID `10001`, matching the APP
+image, and use volume group `10001` for mounted-volume access. Containers inherit
+the pod identity while retaining nonroot enforcement, `RuntimeDefault` seccomp,
+no privilege escalation, a read-only root filesystem and all capabilities dropped.
+The staging bootstrap bundle preserves the same security context. Environment
+namespaces, secret references, RBAC and production capacity remain isolated.
+
+The foundation-owned deployment executor policy additionally permits only the
+`oficina-app` staging executor to call `ecr:DescribeImages` and
+`ecr:BatchGetImage` on the exact same-account `${name}-app` repository
+(`oficina-phase3-app` for this platform). This supplements the existing
+environment-prefixed repository scope for release digest inspection. It adds no
+image push, repository mutation or production permission. Activating the policy
+requires a separately reviewed foundation plan/apply; merging this source does
+not update the live CodeBuild role. Regenerate and review the platform/workload
+bundle digests before deploying the numeric runtime identity.
+
 ```powershell
 ./scripts/render-platform.ps1 -Environment staging `
   -Image 'ACCOUNT.dkr.ecr.us-east-1.amazonaws.com/oficina-app@sha256:DIGEST' `
