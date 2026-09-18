@@ -21,6 +21,12 @@
 - op: add
   path: /rules/-
   value:
+    apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+- op: add
+  path: /rules/-
+  value:
     apiGroups: ["autoscaling"]
     resources: ["horizontalpodautoscalers"]
     resourceNames: ["oficina-app"]

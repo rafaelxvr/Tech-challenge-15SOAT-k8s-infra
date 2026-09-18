@@ -453,6 +453,17 @@ locals {
           Effect   = "Allow"
           Action   = ["ecr:DescribeImages", "ecr:BatchGetImage"]
           Resource = "arn:aws:ecr:${var.aws_region}:${var.account_id}:repository/${var.name}-app"
+          }] : [], deployment.repository == "oficina-app" && deployment.environment == "staging" ? [{
+          Sid      = "ReadAndReleaseApplicationSharedFoundationLock"
+          Effect   = "Allow"
+          Action   = ["s3:GetObject", "s3:DeleteObject"]
+          Resource = "arn:aws:s3:::${var.state_bucket_name}/deployment-locks/shared-foundation.json"
+          }] : [], deployment.repository == "oficina-app" && deployment.environment == "staging" ? [{
+          Sid       = "AcquireApplicationSharedFoundationLockConditionally"
+          Effect    = "Allow"
+          Action    = "s3:PutObject"
+          Resource  = "arn:aws:s3:::${var.state_bucket_name}/deployment-locks/shared-foundation.json"
+          Condition = { StringEquals = { "s3:if-none-match" = "*" } }
           }] : [], flatten([for _ in(deployment.repository == "oficina-app" && deployment.environment == "staging" && contains(keys(var.application_bootstrap_secret_refs), "staging") ? [true] : []) : [
             {
               Sid       = "ReadOnlyReviewedApplicationBootstrapSecrets"
@@ -575,6 +586,8 @@ locals {
             reviewed_backend_region="__TERRAFORM_BACKEND_REGION__"
             reviewed_deployment_mode="__DEPLOYMENT_MODE__"
             reviewed_tfvars_path="__DEPLOYMENT_TFVARS_PATH__"
+            reviewed_source_prefix="__SOURCE_PREFIX__"
+            reviewed_account_id="__ACCOUNT_ID__"
             required=(DEPLOY_ENVIRONMENT SOURCE_BUCKET SOURCE_KEY SOURCE_VERSION_ID EXPECTED_SHA256 RELEASE_MANIFEST_KEY RELEASE_MANIFEST_VERSION_ID EXPECTED_MANIFEST_SHA256 SOURCE_COMMIT DEPLOYER_IMAGE_DIGEST)
             for variable in "$${required[@]}"; do
               if [ -z "$${!variable:-}" ]; then
@@ -593,6 +606,14 @@ locals {
             if [ "$${reviewed_backend_lock_key}" != "$${reviewed_backend_key}.tflock" ]; then
               echo 'Terraform backend lock key is not derived from the reviewed state key.'
               exit 1
+            fi
+            if [ "$${reviewed_repository}" != "oficina-app" ] || [ "$${reviewed_environment}" != "staging" ]; then
+              for variable in PLATFORM_INPUTS_OBJECT_KEY PLATFORM_INPUTS_VERSION_ID STAGING_WORKLOAD_OBJECT_KEY STAGING_WORKLOAD_VERSION_ID CLOUD_WINDOW_OBJECT_KEY CLOUD_WINDOW_VERSION_ID; do
+                if [ -n "$${!variable:-}" ]; then
+                  echo "APP staging input override is forbidden for this reviewed executor: $${variable}"
+                  exit 1
+                fi
+              done
             fi
             workdir="$(mktemp -d)"
             trap 'rm -rf "$${workdir}"' EXIT
@@ -618,6 +639,75 @@ locals {
               echo 'Terraform variables digest mismatch.'
               exit 1
             fi
+            app_staging_switch=()
+            if [ "$${reviewed_repository}" = "oficina-app" ] && [ "$${reviewed_environment}" = "staging" ]; then
+              for variable in PLATFORM_INPUTS_OBJECT_KEY PLATFORM_INPUTS_VERSION_ID STAGING_WORKLOAD_OBJECT_KEY STAGING_WORKLOAD_VERSION_ID CLOUD_WINDOW_OBJECT_KEY CLOUD_WINDOW_VERSION_ID; do
+                if [ -z "$${!variable:-}" ]; then
+                  echo "Required APP staging input is missing: $${variable}"
+                  exit 1
+                fi
+              done
+              reviewed_input_prefix="$${reviewed_source_prefix}/inputs/$${SOURCE_COMMIT}"
+              if [ "$${SOURCE_KEY}" != "$${reviewed_source_prefix}/bundle.zip" ] ||
+                 [ "$${RELEASE_MANIFEST_KEY}" != "$${reviewed_source_prefix}/manifests/$${SOURCE_COMMIT}.json" ] ||
+                 [ "$${TFVARS_OBJECT_KEY}" != "$${reviewed_source_prefix}/config/$${SOURCE_COMMIT}.tfvars.json" ] ||
+                 [ "$${PLATFORM_INPUTS_OBJECT_KEY}" != "$${reviewed_input_prefix}/platform.json" ] ||
+                 [ "$${STAGING_WORKLOAD_OBJECT_KEY}" != "$${reviewed_input_prefix}/workload.json" ] ||
+                 [ "$${CLOUD_WINDOW_OBJECT_KEY}" != "$${reviewed_input_prefix}/cloud-window.json" ]; then
+                echo 'APP staging input object key is outside the reviewed release contract.'
+                exit 1
+              fi
+              input_root="$${workdir}/reviewed-inputs"
+              mkdir -p "$${input_root}"
+              platform_inputs_path="$${input_root}/platform-inputs.json"
+              staging_workload_path="$${input_root}/staging-workload.json"
+              cloud_window_path="$${input_root}/cloud-window.json"
+              aws s3api get-object --bucket "$${SOURCE_BUCKET}" --key "$${PLATFORM_INPUTS_OBJECT_KEY}" --version-id "$${PLATFORM_INPUTS_VERSION_ID}" "$${platform_inputs_path}" >/dev/null
+              aws s3api get-object --bucket "$${SOURCE_BUCKET}" --key "$${STAGING_WORKLOAD_OBJECT_KEY}" --version-id "$${STAGING_WORKLOAD_VERSION_ID}" "$${staging_workload_path}" >/dev/null
+              aws s3api get-object --bucket "$${SOURCE_BUCKET}" --key "$${CLOUD_WINDOW_OBJECT_KEY}" --version-id "$${CLOUD_WINDOW_VERSION_ID}" "$${cloud_window_path}" >/dev/null
+              read_manifest_string() {
+                MANIFEST_FILE="$${workdir}/release-manifest.json" MANIFEST_FIELD="$${1}" pwsh -NoLogo -NoProfile -Command '$m=Get-Content -Raw -LiteralPath $env:MANIFEST_FILE | ConvertFrom-Json; $p=$m.PSObject.Properties[$env:MANIFEST_FIELD]; if ($null -eq $p -or $p.Value -isnot [string] -or [string]::IsNullOrWhiteSpace($p.Value)) { exit 1 }; Write-Output $p.Value'
+              }
+              expected_platform_sha="$(read_manifest_string platformInputsSha256)"
+              expected_workload_sha="$(read_manifest_string stagingWorkloadSha256)"
+              expected_cloud_window_sha="$(read_manifest_string cloudWindowEvidenceSha256)"
+              if [[ ! "$${expected_platform_sha}" =~ ^[a-f0-9]{64}$ ]] ||
+                 [[ ! "$${expected_workload_sha}" =~ ^[a-f0-9]{64}$ ]] ||
+                 [[ ! "$${expected_cloud_window_sha}" =~ ^[a-f0-9]{64}$ ]]; then
+                echo 'APP staging input digest is missing or malformed in the reviewed release manifest.'
+                exit 1
+              fi
+              actual_platform_sha="$(sha256sum "$${platform_inputs_path}" | awk '{print $1}')"
+              actual_workload_sha="$(sha256sum "$${staging_workload_path}" | awk '{print $1}')"
+              actual_cloud_window_sha="$(sha256sum "$${cloud_window_path}" | awk '{print $1}')"
+              if [ "$${actual_platform_sha}" != "$${expected_platform_sha}" ] ||
+                 [ "$${actual_workload_sha}" != "$${expected_workload_sha}" ] ||
+                 [ "$${actual_cloud_window_sha}" != "$${expected_cloud_window_sha}" ]; then
+                echo 'APP staging input digest mismatch.'
+                exit 1
+              fi
+              reviewed_kube_context="$(read_manifest_string kubeContext)"
+              kube_context_prefix="arn:aws:eks:$${reviewed_backend_region}:$${reviewed_account_id}:cluster/"
+              if [[ "$${reviewed_kube_context}" != "$${kube_context_prefix}"* ]]; then
+                echo 'APP staging Kubernetes context is outside the reviewed account and region.'
+                exit 1
+              fi
+              cluster_name="$${reviewed_kube_context##*/}"
+              if [[ ! "$${cluster_name}" =~ ^[A-Za-z0-9][A-Za-z0-9_-]+$ ]]; then
+                echo 'APP staging Kubernetes cluster name is malformed.'
+                exit 1
+              fi
+              export KUBECONFIG="$${workdir}/kubeconfig"
+              aws eks update-kubeconfig --region "$${reviewed_backend_region}" --name "$${cluster_name}" --kubeconfig "$${KUBECONFIG}" >/dev/null
+              app_staging_switch=(
+                -PlatformInputsFile "$${platform_inputs_path}"
+                -StagingWorkloadFile "$${staging_workload_path}"
+                -CloudWindowEvidenceFile "$${cloud_window_path}"
+                -StateBucket "$${reviewed_backend_bucket}"
+                -SourceArchiveFile "$${workdir}/bundle.zip"
+                -SourceKey "$${SOURCE_KEY}"
+              )
+            fi
             unzip -q "$${workdir}/bundle.zip" -d "$${workdir}/release"
             apply_switch=()
             if [ "$${reviewed_deployment_mode}" = "apply" ]; then apply_switch=(-ApplyReviewedPlan); fi
@@ -627,13 +717,13 @@ locals {
               functions_tfvars_digest_switch=(-ExpectedTerraformVariablesSha256 "$${EXPECTED_TFVARS_SHA256}")
               functions_shared_lock_switch=(-StateBucket "$${reviewed_backend_bucket}" -SharedFoundationMutation)
             fi
-            pwsh -NoLogo -NoProfile -File "$${workdir}/release/scripts/deploy.ps1" -Environment "$${reviewed_environment}" -ReleaseManifest "$${workdir}/release-manifest.json" -ExpectedSourceSha256 "$${EXPECTED_SHA256}" -ExpectedManifestSha256 "$${EXPECTED_MANIFEST_SHA256}" "$${functions_tfvars_digest_switch[@]}" "$${functions_shared_lock_switch[@]}" -SourceCommit "$${SOURCE_COMMIT}" -ExpectedDeployerImageDigest "$${DEPLOYER_IMAGE_DIGEST}" -TerraformVariablesFile "$${reviewed_tfvars_path}" -TerraformBackendBucket "$${reviewed_backend_bucket}" -TerraformBackendKey "$${reviewed_backend_key}" -TerraformBackendLockKey "$${reviewed_backend_lock_key}" -TerraformBackendRegion "$${reviewed_backend_region}" "$${apply_switch[@]}"
+            pwsh -NoLogo -NoProfile -File "$${workdir}/release/scripts/deploy.ps1" -Environment "$${reviewed_environment}" -ReleaseManifest "$${workdir}/release-manifest.json" -ExpectedSourceSha256 "$${EXPECTED_SHA256}" -ExpectedManifestSha256 "$${EXPECTED_MANIFEST_SHA256}" "$${functions_tfvars_digest_switch[@]}" "$${functions_shared_lock_switch[@]}" "$${app_staging_switch[@]}" -SourceCommit "$${SOURCE_COMMIT}" -ExpectedDeployerImageDigest "$${DEPLOYER_IMAGE_DIGEST}" -TerraformVariablesFile "$${reviewed_tfvars_path}" -TerraformBackendBucket "$${reviewed_backend_bucket}" -TerraformBackendKey "$${reviewed_backend_key}" -TerraformBackendLockKey "$${reviewed_backend_lock_key}" -TerraformBackendRegion "$${reviewed_backend_region}" "$${apply_switch[@]}"
   YAML
   # This is the exact buildspec passed to each aws_codebuild_project.deploy
   # source block below. Tests render this local through Terraform, then run
   # the resulting shell bootstrap with mocked process dependencies.
   rendered_deployment_buildspecs = {
-    for key, deployment in var.deployments : key => replace(replace(replace(replace(replace(replace(replace(replace(
+    for key, deployment in var.deployments : key => replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(
       local.inline_deployment_buildspec_template,
       "__DEPLOYMENT_ENVIRONMENT__", deployment.environment),
       "__REPOSITORY__", deployment.repository),
@@ -642,7 +732,9 @@ locals {
       "__TERRAFORM_BACKEND_LOCK_KEY__", "${deployment.terraform_state_key}.tflock"),
       "__TERRAFORM_BACKEND_REGION__", var.aws_region),
       "__DEPLOYMENT_MODE__", deployment.deployment_mode),
-    "__DEPLOYMENT_TFVARS_PATH__", deployment.terraform_variables_path)
+      "__DEPLOYMENT_TFVARS_PATH__", deployment.terraform_variables_path),
+      "__SOURCE_PREFIX__", deployment.source_prefix),
+    "__ACCOUNT_ID__", var.account_id)
   }
 }
 

@@ -11,9 +11,10 @@ The staging overlay appends exactly these rules to the existing namespaced `ofic
 | core `serviceaccounts` | `get` | `oficina-app` |
 | core `serviceaccounts` | `create` | Namespace-scoped; Kubernetes cannot restrict create using `resourceNames` |
 | batch `jobs` | `get`, `list`, `watch`, `create` | Namespace-scoped; migration Job names include the reviewed release digest |
+| core `pods/log` | `get` | Namespace-scoped pod log subresource; needed only for the reviewed migration receipt |
 | autoscaling `horizontalpodautoscalers` | `delete` | `oficina-app` |
 
-The Job reads support `kubectl wait` and completion readback; the HPA delete supports draining existing FirstWriter workloads. There are no new Secret reads, role/rolebinding mutations, Job deletion, service-account updates or wildcard grants. The existing RoleBinding still selects the reviewed `DeployerPrincipalArn`; the operator must bind the actual APP executor identity rather than assume the platform executor identity is interchangeable.
+The Job reads support `kubectl wait` and completion readback; the pod-log read supports the bounded bootstrap receipt; the HPA delete supports draining existing FirstWriter workloads. There are no new Secret reads, role/rolebinding mutations, Job deletion, service-account updates or wildcard grants. The existing RoleBinding still selects the reviewed `DeployerPrincipalArn`; the operator must bind the actual APP executor identity rather than assume the platform executor identity is interchangeable.
 
 Namespace-wide SA/Job creation is a material RBAC boundary: a trusted executor holding these permissions can create objects beyond this adapter's fixed names. The adapter only creates the reviewed APP service account and migration Job. If policy requires server-side restrictions on names, images or service-account selection, review corresponding admission policy before activation; this patch does not claim RBAC enforces those fields.
 
@@ -34,7 +35,7 @@ The renderer uses local Terraform `console`/`yamldecode` in an isolated empty te
 
 `app-workload-staging.receipt.json` records `platformManifestSha256`, `stagingWorkloadSha256`, staging environment, APP image, IRSA reference and `RENDERED_ONLY`. Copy `stagingWorkloadSha256` into the separately reviewed APP release and provide the bundle as its `-StagingWorkloadFile`. The receipt binds bytes, not deployment authorization or source provenance; include the reviewed K8S source commit and input evidence in the release review.
 
-**Do not apply the entire List directly.** The APP adapter creates SA/Deployment with zero writers, runs migration, waits for rollout, and only then restores the HPA. `APP_DEPLOYMENT_DISABLED` in the APP executor remains an external activation boundary.
+**Do not apply the entire List directly.** The APP adapter creates SA/Deployment with zero writers, runs migration, waits for rollout, and only then restores the HPA. The platform executor may invoke this adapter only for staging when the exact versioned platform/workload/cloud-window documents and source archive are hash-bound to the release manifest; production remains fail-closed.
 
 ## Remaining external inputs and verification
 

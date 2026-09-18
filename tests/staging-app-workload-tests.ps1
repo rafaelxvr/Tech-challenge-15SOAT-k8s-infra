@@ -38,7 +38,7 @@ try {
         $workload=@($documents | Where-Object kind -CEQ 'Deployment')[0]
         Assert-RuntimeIdentity $workload.spec.template.spec
         $role=@($documents | Where-Object {$_.kind -ceq 'Role' -and $_.metadata.name -ceq 'oficina-release-deployer'})[0]
-        $extras=@($role.rules | Where-Object { $_.resources -contains 'serviceaccounts' -or $_.resources -contains 'jobs' -or $_.verbs -contains 'delete' })
+        $extras=@($role.rules | Where-Object { $_.resources -contains 'serviceaccounts' -or $_.resources -contains 'jobs' -or $_.resources -contains 'pods/log' -or $_.verbs -contains 'delete' })
         if($environment -ceq 'production') {
             Assert ($role.rules.Count -eq 6) 'Production must keep the existing six Role rules.'
             Assert ($extras.Count -eq 0) 'Production must not gain staging bootstrap or HPA delete permissions.'
@@ -48,7 +48,11 @@ try {
             Reject { & "$repo/scripts/render-staging-app-workload.ps1" -Environment staging -PlatformManifestFile $path -ExpectedPlatformSha256 (Hash $path) -OutputDirectory "$temp/rejected" }
             continue
         }
-        Assert ($extras.Count -eq 4 -and $role.rules.Count -eq 10) 'Staging must add exactly four least-privilege rules.'
+        Assert ($extras.Count -eq 5 -and $role.rules.Count -eq 11) 'Staging must add exactly five least-privilege rules.'
+        $configmaps=@($role.rules | Where-Object {$_.resources -contains 'configmaps'})[0]
+        Assert (($configmaps.verbs -join ',') -ceq 'get,list,watch,create,patch,update' -and ($configmaps.resources -contains 'configmaps') -and ($configmaps.verbs -notcontains 'delete') -and ($configmaps.apiGroups -join ',') -ceq '') 'Bootstrap receipt ConfigMap access must remain namespaced and exclude deletion.'
+        $pods=@($role.rules | Where-Object {$_.resources -contains 'pods' -and $_.resources -notcontains 'pods/log'})[0]
+        Assert (($pods.verbs -join ',') -ceq 'get,list,watch' -and ($pods.resources -join ',') -ceq 'pods' -and ($pods.apiGroups -join ',') -ceq '') 'Pod status reads must remain namespaced and read-only.'
         $sa=@($extras | Where-Object {$_.resources -contains 'serviceaccounts'})
         $get=@($sa | Where-Object {$_.verbs -contains 'get'})[0]
         $create=@($sa | Where-Object {$_.verbs -contains 'create'})[0]
@@ -56,6 +60,8 @@ try {
         Assert (($create.verbs -join ',') -ceq 'create' -and ($create.resources -join ',') -ceq 'serviceaccounts' -and ($create.apiGroups -join ',') -ceq '' -and $null -eq $create.PSObject.Properties['resourceNames']) 'SA create must not add mutation or read permissions.'
         $jobs=@($extras | Where-Object {$_.resources -contains 'jobs'})[0]
         Assert (($jobs.verbs -join ',') -ceq 'get,list,watch,create' -and ($jobs.resources -join ',') -ceq 'jobs' -and ($jobs.apiGroups -join ',') -ceq 'batch') 'Job verbs must match get/wait/create only.'
+        $logs=@($extras | Where-Object {$_.resources -contains 'pods/log'})[0]
+        Assert (($logs.verbs -join ',') -ceq 'get' -and ($logs.resources -join ',') -ceq 'pods/log' -and ($logs.apiGroups -join ',') -ceq '' -and $null -eq $logs.PSObject.Properties['resourceNames']) 'Migration log reads must target only the namespaced pod log subresource.'
         $delete=@($extras | Where-Object {$_.verbs -contains 'delete'})[0]
         Assert (($delete.verbs -join ',') -ceq 'delete' -and ($delete.resources -join ',') -ceq 'horizontalpodautoscalers' -and ($delete.resourceNames -join ',') -ceq 'oficina-app' -and ($delete.apiGroups -join ',') -ceq 'autoscaling') 'HPA delete must target only the APP autoscaler.'
         Assert ($role.metadata.namespace -ceq 'oficina-staging') 'Additional permissions must stay namespaced to staging.'
