@@ -21,6 +21,28 @@ The eight real repository/environment launches, branch-protection screenshots, e
 
 ## I7 source hardening
 
+### APP staging source-prefix input
+
+The platform owns `infra/foundation`'s reviewed `deployments` input and the
+`deployment-executor` module. For the entry whose repository is `oficina-app`
+and environment is `staging`, set `source_prefix = "releases/app/staging"`.
+The module derives both CodeBuild's S3 source location
+`<artifact-bucket>/releases/app/staging/bundle.zip` and its exact source-prefix
+read policy from that single input. A legacy `releases/application/staging`
+value fails validation; changing only CodeBuild's location would leave IAM
+inconsistent. Map keys are input-specific; select the entry by repository and
+environment rather than assuming its key.
+
+If an existing project has the legacy location, the platform owner must correct
+the external reviewed foundation input and review the resulting project/policy
+plan through the existing cloud-window and apply guards. Separately verify that
+the bootstrap launcher's reviewed `sourcePrefix` and APP workflow source prefix
+are also `releases/app/staging`. The bootstrap input writer emits launcher
+permissions, not the foundation `deployments` map. This source change does not
+edit private inputs or apply cloud changes; production inputs, deployment mode,
+and authorization remain unchanged. Offline regression coverage lives in
+`infra/modules/deployment-executor/tests/app-source-prefix.tftest.hcl`.
+
 Before any OIDC request, each deployment job independently checks its exact push/branch/environment context with `check-workflow-context.ps1`. PRs, tags, manual dispatch and legacy master cannot pass that guard. Non-cancelling environment concurrency, named S3 object versions, checksum bootstrap, terminal CodeBuild polling and staging promotion receipt verification remain required.
 
 `package-source.ps1` resolves the reviewed commit to its tree and uses a fixed archive timestamp. Tests prove that an unchanged merge preserves artifact bytes and a changed tree produces a different digest. Production still requires the successful immutable staging receipt; deterministic packaging does not waive that proof. The package helper never archives the mutable working directory.

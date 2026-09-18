@@ -108,6 +108,14 @@ variable "deployments" {
   }))
   description = "Exactly four repositories multiplied by staging and production. Source bundles arrive through S3, never GitHub credentials in CodeBuild."
   validation {
+    condition = alltrue([
+      for deployment in values(var.deployments) :
+      deployment.source_prefix == "releases/app/staging"
+      if deployment.repository == "oficina-app" && deployment.environment == "staging"
+    ])
+    error_message = "The oficina-app staging source_prefix must be releases/app/staging, matching the APP launcher contract and executor S3 read scope."
+  }
+  validation {
     condition = length(var.deployments) == 8 && length(distinct([for deployment in values(var.deployments) : deployment.repository])) == 4 && length(distinct([for deployment in values(var.deployments) : deployment.terraform_state_key])) == length(var.deployments) && alltrue([
       for deployment in values(var.deployments) :
       contains(["staging", "production"], deployment.environment) &&
