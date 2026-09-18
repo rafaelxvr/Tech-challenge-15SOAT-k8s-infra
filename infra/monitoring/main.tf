@@ -8,7 +8,8 @@ locals {
   dashboard_widgets = {
     business = [
       { title = "Daily diagnosis mean", query = "FROM WorkshopReportSnapshot SELECT latest(diagnosis_total_seconds) / latest(diagnosis_samples) / 60 WHERE ${local.dashboard_nrql} AND window_kind = 'day' AND diagnosis_samples > 0 FACET business_date SINCE 3 minutes ago" },
-      { title = "Rolling execution mean", query = "FROM WorkshopReportSnapshot SELECT latest(execution_total_seconds) / latest(execution_samples) / 60 WHERE ${local.dashboard_nrql} AND window_kind = 'rolling_7_day' AND execution_samples > 0 SINCE 3 minutes ago" }
+      { title = "Rolling execution mean", query = "FROM WorkshopReportSnapshot SELECT latest(execution_total_seconds) / latest(execution_samples) / 60 WHERE ${local.dashboard_nrql} AND window_kind = 'rolling_7_day' AND execution_samples > 0 SINCE 3 minutes ago" },
+      { title = "Daily finalization mean", query = "FROM WorkshopReportSnapshot SELECT latest(finalization_total_seconds) / latest(finalization_samples) / 60 WHERE ${local.dashboard_nrql} AND window_kind = 'day' AND finalization_samples > 0 FACET business_date SINCE 3 minutes ago" }
     ]
     orders = [
       { title = "Order volume", query = "FROM WorkshopReportSnapshot SELECT latest(created_count), latest(eligible_count), latest(excluded_count) WHERE ${local.dashboard_nrql} AND window_kind = 'day' FACET business_date SINCE 3 minutes ago" },
@@ -16,16 +17,23 @@ locals {
     ]
     delivery = [
       { title = "Outbox blocked", query = "FROM WorkshopOutboxHealth SELECT latest(blocked_count), latest(oldest_pending_seconds) WHERE ${local.dashboard_nrql} SINCE 3 minutes ago" },
-      { title = "Function delivery failures", query = "FROM Log SELECT count(*) WHERE ${local.dashboard_nrql} AND event_name = 'notification_failed' SINCE 5 minutes ago" }
+      { title = "Function delivery failures", query = "FROM Log SELECT count(*) WHERE ${local.dashboard_nrql} AND event_name = 'notification_failed' SINCE 5 minutes ago" },
+      { title = "Integration errors", query = "FROM Log SELECT count(*) WHERE ${local.dashboard_nrql} AND event_name = 'integration_failed' SINCE 5 minutes ago" }
     ]
     platform = [
       { title = "Kubernetes capacity", query = "FROM K8sContainerSample SELECT average(cpuUsedCores), average(memoryWorkingSetBytes) WHERE ${local.dashboard_nrql} FACET clusterName SINCE 5 minutes ago" },
-      { title = "Telemetry heartbeat", query = "FROM WorkshopTelemetryHeartbeat SELECT latest(drop_count) WHERE ${local.dashboard_nrql} SINCE 3 minutes ago" }
+      { title = "Telemetry heartbeat", query = "FROM WorkshopTelemetryHeartbeat SELECT latest(drop_count) WHERE ${local.dashboard_nrql} SINCE 3 minutes ago" },
+      { title = "API p95 latency seconds", query = "FROM Transaction SELECT percentile(duration, 95) WHERE ${local.dashboard_nrql} SINCE 5 minutes ago" },
+      { title = "Correlated request logs", query = "FROM Log SELECT count(*) WHERE ${local.dashboard_nrql} AND correlation_id IS NOT NULL AND api_gateway_request_id IS NOT NULL AND traceparent IS NOT NULL AND event_name IS NOT NULL AND service IS NOT NULL AND version IS NOT NULL FACET service, event_name SINCE 5 minutes ago" }
     ]
   }
   alert_conditions = {
     order_technical_failures = { query = "FROM Log SELECT count(*) WHERE ${local.alert_nrql} AND event_name = 'order_technical_failure'", threshold = 0, duration = 60, expiration = null }
     api_error_ratio          = { query = "FROM Transaction SELECT percentage(count(*), WHERE httpResponseCode >= 500) WHERE ${local.alert_nrql}", threshold = 5, duration = 300, expiration = null }
+    api_latency              = { query = "FROM Transaction SELECT percentile(duration, 95) WHERE ${local.alert_nrql}", threshold = 2, duration = 300, expiration = null }
+    # SyntheticCheck does not inherit the collector's environment attribute.
+    # Bind the exact environment monitor name instead of an absent attribute.
+    gateway_health_failure   = { query = "FROM SyntheticCheck SELECT filter(count(*), WHERE result = 'FAILED') WHERE monitorName = 'Oficina ${var.environment} gateway health'", threshold = 0, duration = 60, expiration = null }
     outbox_blocked           = { query = "FROM WorkshopOutboxHealth SELECT latest(blocked_count) WHERE ${local.alert_nrql}", threshold = 0, duration = 60, expiration = null }
     outbox_age               = { query = "FROM WorkshopOutboxHealth SELECT latest(oldest_pending_seconds) WHERE ${local.alert_nrql}", threshold = 60, duration = 120, expiration = null }
     container_memory         = { query = "FROM K8sContainerSample SELECT max(memoryWorkingSetBytes / memoryLimitBytes * 100) WHERE ${local.alert_nrql}", threshold = 85, duration = 300, expiration = null }
