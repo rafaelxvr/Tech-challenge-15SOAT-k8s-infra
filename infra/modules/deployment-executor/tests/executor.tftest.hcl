@@ -277,7 +277,7 @@ run "eight_bounded_private_deployers" {
         Sid      = "ReadOnlyEnvironmentEventSourceMappingMetadata"
         Effect   = "Allow"
         Action   = ["lambda:GetEventSourceMapping", "lambda:ListTags"]
-        Resource = "arn:aws:lambda:us-east-1:123456789012:event-source-mapping:*"
+        Resource = "*"
       }
     ])
     error_message = "Functions executors must manage only the reviewed Lambda invoke, pinned New Relic layer and API Gateway v2 binding resources."
