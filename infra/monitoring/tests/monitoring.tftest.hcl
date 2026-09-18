@@ -25,7 +25,7 @@ run "monitoring_is_pinned_bounded_and_has_four_dashboards" {
     error_message = "The pinned bundle must use supported 30-second low-data collection, exact environment attributes, approved collectors and an existing Secret reference only."
   }
   assert {
-    condition     = length(newrelic_nrql_alert_condition.threshold) == 12 && newrelic_nrql_alert_condition.threshold["outbox_age"].critical[0].threshold == 60 && newrelic_nrql_alert_condition.threshold["missing_heartbeat"].critical[0].operator == "above" && newrelic_nrql_alert_condition.threshold["missing_heartbeat"].critical[0].threshold == 1000000000 && newrelic_nrql_alert_condition.threshold["missing_heartbeat"].expiration_duration == 180 && newrelic_nrql_alert_condition.threshold["missing_heartbeat"].open_violation_on_expiration && newrelic_synthetics_monitor.gateway_health["staging"].period == "EVERY_MINUTE"
+    condition     = length(newrelic_nrql_alert_condition.threshold) == 14 && newrelic_nrql_alert_condition.threshold["outbox_age"].critical[0].threshold == 60 && newrelic_nrql_alert_condition.threshold["missing_heartbeat"].critical[0].operator == "above" && newrelic_nrql_alert_condition.threshold["missing_heartbeat"].critical[0].threshold == 1000000000 && newrelic_nrql_alert_condition.threshold["missing_heartbeat"].expiration_duration == 180 && newrelic_nrql_alert_condition.threshold["missing_heartbeat"].open_violation_on_expiration && newrelic_synthetics_monitor.gateway_health["staging"].period == "EVERY_MINUTE"
     error_message = "A normal heartbeat count must remain nonviolating while three-minute loss-of-signal opens the heartbeat alert."
   }
   assert {
@@ -33,7 +33,99 @@ run "monitoring_is_pinned_bounded_and_has_four_dashboards" {
     error_message = "The same Helm release must render the existing environment Secret sync before collector manifests."
   }
   assert {
-    condition     = alltrue([for alert in values(newrelic_nrql_alert_condition.threshold) : strcontains(alert.nrql[0].query, "environment = 'staging'") && !strcontains(alert.nrql[0].query, "{{environment}}")]) && strcontains(newrelic_one_dashboard.approved["platform"].page[0].widget_line[0].nrql_query[0].query, "{{environment}}")
-    error_message = "Applied alert NRQL must bind the concrete Terraform environment; dashboards retain their finite interactive environment filter."
+    condition     = alltrue([for name, alert in newrelic_nrql_alert_condition.threshold : (name == "gateway_health_failure" ? strcontains(alert.nrql[0].query, "monitorName = 'Oficina staging gateway health'") : strcontains(alert.nrql[0].query, "environment = 'staging'")) && !strcontains(alert.nrql[0].query, "{{environment}}")]) && strcontains(newrelic_one_dashboard.approved["platform"].page[0].widget_line[0].nrql_query[0].query, "{{environment}}")
+    error_message = "Applied alert NRQL must bind the concrete Terraform environment or its exact synthetic monitor; dashboards retain their finite interactive environment filter."
+  }
+}
+run "required_observability_categories_are_represented" {
+  command = plan
+
+  assert {
+    condition = anytrue([for widget in local.dashboard_widgets.business :
+      strcontains(widget.query, "latest(finalization_total_seconds) / latest(finalization_samples) / 60") &&
+      strcontains(widget.query, "finalization_samples > 0") && strcontains(widget.query, "window_kind = 'day'")
+    ])
+    error_message = "The finalization duration dashboard must use totals/samples in minutes with a positive-sample guard."
+  }
+  assert {
+    condition = anytrue([for widget in local.dashboard_widgets.delivery :
+      strcontains(widget.query, "FROM Log SELECT count(*)") && strcontains(widget.query, "event_name = 'integration_failed'")
+    ])
+    error_message = "The delivery dashboard must represent integration failures, not notification failures alone."
+  }
+  assert {
+    condition = try(
+      strcontains(local.alert_conditions["api_latency"].query, "FROM Transaction SELECT percentile(duration, 95)") &&
+      local.alert_conditions["api_latency"].threshold == 2 &&
+      local.alert_conditions["api_latency"].duration == 300,
+      false
+    )
+    error_message = "API p95 latency must have an explicit two-second/five-minute condition."
+  }
+  assert {
+    condition = anytrue([for widget in local.dashboard_widgets.platform : alltrue([
+      for field in ["correlation_id", "api_gateway_request_id", "traceparent", "event_name", "service", "version"] :
+      strcontains(widget.query, "${field} IS NOT NULL")
+    ]) && strcontains(widget.query, "FROM Log SELECT count(*)")])
+    error_message = "A structured-log correlation query must require request, trace, event, service and version fields without selecting raw payloads."
+  }
+  assert {
+    condition = try(
+      local.alert_conditions["gateway_health_failure"].query == "FROM SyntheticCheck SELECT filter(count(*), WHERE result = 'FAILED') WHERE monitorName = 'Oficina staging gateway health'" &&
+      local.alert_conditions["gateway_health_failure"].threshold == 0 &&
+      local.alert_conditions["gateway_health_failure"].duration == 60,
+      false
+    )
+    error_message = "A failed synthetic ping needs an explicit alert scoped to the staging monitor."
+  }
+  assert {
+    condition = anytrue([for widget in local.dashboard_widgets.orders :
+      strcontains(widget.query, "latest(created_count)") && strcontains(widget.query, "window_kind = 'day'") && strcontains(widget.query, "FACET business_date")
+      ]) && alltrue([for status in ["diagnosis", "execution"] : anytrue([
+        for widget in local.dashboard_widgets.business : strcontains(widget.query, "latest(${status}_total_seconds) / latest(${status}_samples) / 60") && strcontains(widget.query, "${status}_samples > 0")
+    ])])
+    error_message = "Daily order volume and diagnosis/execution duration definitions must remain represented."
+  }
+  assert {
+    condition = alltrue([for name in ["order_technical_failures", "integration_failures", "container_memory", "node_cpu", "pending_unavailable_pods", "missing_heartbeat"] :
+      contains(keys(newrelic_nrql_alert_condition.threshold), name)
+      ]) && alltrue([for monitor in values(newrelic_synthetics_monitor.gateway_health) :
+      monitor.type == "SIMPLE" && monitor.period == "EVERY_MINUTE" && monitor.validation_string == "UP" && monitor.status == "ENABLED"
+    ])
+    error_message = "Order/integration/resource/health conditions and bounded health synthetics must remain represented."
+  }
+  assert {
+    condition = alltrue([for name, definition in local.alert_conditions :
+      newrelic_nrql_alert_condition.threshold[name].nrql[0].query == definition.query &&
+      newrelic_nrql_alert_condition.threshold[name].critical[0].threshold == definition.threshold &&
+      newrelic_nrql_alert_condition.threshold[name].critical[0].threshold_duration == definition.duration
+    ]) && alltrue([for environment, monitor in newrelic_synthetics_monitor.gateway_health : monitor.name == "Oficina ${environment} gateway health"])
+    error_message = "The planned conditions must retain the tested queries/thresholds and exact synthetic monitor identities."
+  }
+  assert {
+    condition = (alltrue([for widget in flatten(values(local.dashboard_widgets)) :
+      strcontains(widget.query, "environment = '{{environment}}'") &&
+      !can(regex("(?i)select[[:space:]]+\\*|password|authorization|access_token|license.?key|api.?key", widget.query))
+      ]) && !strcontains(jsonencode(local.dashboard_widgets), nonsensitive(var.newrelic_api_key)) &&
+    !strcontains(helm_release.nri_bundle.values[0], nonsensitive(var.newrelic_api_key)))
+    error_message = "Dashboard queries must stay environment-scoped and avoid raw payload/credential fields or provider secret values."
+  }
+}
+
+run "production_conditions_cannot_match_staging_signals" {
+  command = plan
+  variables {
+    environment               = "production"
+    ingest_secret_name        = "newrelic-production-ingest"
+    ingest_secret_arn         = "arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/production/newrelic-ingest-AbCdEf"
+    secret_sync_irsa_role_arn = "arn:aws:iam::123456789012:role/oficina-production-newrelic-secret-sync"
+  }
+  assert {
+    condition = try(
+      strcontains(local.alert_conditions["api_latency"].query, "environment = 'production'") &&
+      local.alert_conditions["gateway_health_failure"].query == "FROM SyntheticCheck SELECT filter(count(*), WHERE result = 'FAILED') WHERE monitorName = 'Oficina production gateway health'",
+      false
+    )
+    error_message = "Production latency and synthetic conditions must bind production only; this is a mocked plan, not a deployment."
   }
 }
