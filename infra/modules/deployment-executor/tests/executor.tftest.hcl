@@ -246,8 +246,14 @@ run "eight_bounded_private_deployers" {
         "arn:aws:lambda:us-east-1:451483290750:layer:NewRelicLambdaExtension:77"
       ] &&
       one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "DiscoverOnlyReviewedEnvironmentGatewayCollections"]).Action == ["apigateway:GET"] &&
+      one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "DiscoverOnlyReviewedEnvironmentGatewayCollections"]).Resource == [
+        "arn:aws:apigateway:us-east-1::/apis/${environment == "staging" ? "stage123" : "prod456"}",
+        "arn:aws:apigateway:us-east-1::/apis/${environment == "staging" ? "stage123" : "prod456"}/authorizers",
+        "arn:aws:apigateway:us-east-1::/apis/${environment == "staging" ? "stage123" : "prod456"}/integrations",
+        "arn:aws:apigateway:us-east-1::/apis/${environment == "staging" ? "stage123" : "prod456"}/routes"
+      ] &&
       one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "CreateOnlyReviewedEnvironmentGatewayBindings"]).Action == ["apigateway:POST"] &&
-      one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "ManageOnlyReviewedEnvironmentGatewayResources"]).Action == ["apigateway:GET", "apigateway:PATCH", "apigateway:DELETE"] &&
+      one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "ManageOnlyReviewedEnvironmentGatewayResources"]).Action == ["apigateway:GET", "apigateway:PUT", "apigateway:PATCH", "apigateway:DELETE"] &&
       one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "ManageOnlyReviewedEnvironmentGatewayResources"]).Resource == [
         "arn:aws:apigateway:us-east-1::/apis/${environment == "staging" ? "stage123" : "prod456"}/authorizers/${environment == "staging" ? "authstage" : "authprod"}",
         "arn:aws:apigateway:us-east-1::/apis/${environment == "staging" ? "stage123" : "prod456"}/integrations/${environment == "staging" ? "intstage1" : "intprod1"}",
@@ -255,8 +261,18 @@ run "eight_bounded_private_deployers" {
         "arn:aws:apigateway:us-east-1::/apis/${environment == "staging" ? "stage123" : "prod456"}/routes/${environment == "staging" ? "routestage1" : "routeprod1"}",
         "arn:aws:apigateway:us-east-1::/apis/${environment == "staging" ? "stage123" : "prod456"}/routes/${environment == "staging" ? "routestage2" : "routeprod2"}"
       ] &&
+      !strcontains(local.executor_permission_profile_documents["functions_${environment}"], "/apis/*") &&
       !strcontains(local.executor_permission_profile_documents["functions_${environment}"], "/routes/*") &&
-      !strcontains(local.executor_permission_profile_documents["functions_${environment}"], "/integrations/*")
+      !strcontains(local.executor_permission_profile_documents["functions_${environment}"], "/integrations/*") &&
+      one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "ManageOnlyEnvironmentFunctionEventMappings"]) == {
+        Sid      = "ManageOnlyEnvironmentFunctionEventMappings"
+        Effect   = "Allow"
+        Action   = ["lambda:CreateEventSourceMapping", "lambda:UpdateEventSourceMapping", "lambda:DeleteEventSourceMapping", "lambda:ListEventSourceMappings"]
+        Resource = "*"
+        Condition = { ArnEquals = {
+          "lambda:FunctionArn" = "arn:aws:lambda:us-east-1:123456789012:function:oficina-phase3-${environment}-notification"
+        } }
+      }
     ])
     error_message = "Functions executors must manage only the reviewed Lambda invoke, pinned New Relic layer and API Gateway v2 binding resources."
   }
