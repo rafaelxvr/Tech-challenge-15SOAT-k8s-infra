@@ -217,6 +217,17 @@ run "eight_bounded_private_deployers" {
         Action   = ["lambda:AddPermission", "lambda:RemovePermission", "lambda:GetPolicy"]
         Resource = "arn:aws:lambda:us-east-1:123456789012:function:oficina-phase3-${environment}-*"
       } &&
+      one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "ReadOnlyEnvironmentFunctionCodeSigningConfigurations"]) == {
+        Sid    = "ReadOnlyEnvironmentFunctionCodeSigningConfigurations"
+        Effect = "Allow"
+        Action = ["lambda:GetFunctionCodeSigningConfig"]
+        Resource = [
+          "arn:aws:lambda:us-east-1:123456789012:function:oficina-phase3-${environment}-authorizer",
+          "arn:aws:lambda:us-east-1:123456789012:function:oficina-phase3-${environment}-challenge",
+          "arn:aws:lambda:us-east-1:123456789012:function:oficina-phase3-${environment}-verification",
+          "arn:aws:lambda:us-east-1:123456789012:function:oficina-phase3-${environment}-notification"
+        ]
+      } &&
       one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "ReadAndReleaseSharedFoundationLock"]) == {
         Sid      = "ReadAndReleaseSharedFoundationLock"
         Effect   = "Allow"
@@ -279,6 +290,7 @@ run "eight_bounded_private_deployers" {
       !strcontains(local.executor_permission_profile_documents["functions_${environment}"], "secretsmanager:GetSecretValue") &&
       !strcontains(local.executor_permission_profile_documents["functions_${environment}"], environment == "staging" ? "production" : "staging") &&
       !strcontains(jsonencode(one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "ReadOnlyPinnedNewRelicLayerVersions"])), ":*") &&
+      !strcontains(jsonencode(one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "ReadOnlyEnvironmentFunctionCodeSigningConfigurations"])), "function:${var.name}-${environment}-*") &&
       !strcontains(local.executor_permission_profile_documents["functions_${environment}"], "deployment-locks/*")
       ]) &&
       alltrue([for key in ["k8s_staging", "k8s_production", "db_staging", "db_production", "app_staging", "app_production"] :
