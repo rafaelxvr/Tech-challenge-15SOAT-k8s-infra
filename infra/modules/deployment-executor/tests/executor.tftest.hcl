@@ -217,6 +217,19 @@ run "eight_bounded_private_deployers" {
         Action   = ["lambda:AddPermission", "lambda:RemovePermission", "lambda:GetPolicy"]
         Resource = "arn:aws:lambda:us-east-1:123456789012:function:oficina-phase3-${environment}-*"
       } &&
+      one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "ReadAndReleaseSharedFoundationLock"]) == {
+        Sid      = "ReadAndReleaseSharedFoundationLock"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:DeleteObject"]
+        Resource = "arn:aws:s3:::oficina-phase3-state-example/deployment-locks/shared-foundation.json"
+      } &&
+      one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "AcquireSharedFoundationLockConditionally"]) == {
+        Sid       = "AcquireSharedFoundationLockConditionally"
+        Effect    = "Allow"
+        Action    = "s3:PutObject"
+        Resource  = "arn:aws:s3:::oficina-phase3-state-example/deployment-locks/shared-foundation.json"
+        Condition = { StringEquals = { "s3:if-none-match" = "*" } }
+      } &&
       one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "ReadOnlyPinnedNewRelicLayerVersions"]).Resource == [
         "arn:aws:lambda:us-east-1:451483290750:layer:NewRelicJava17:29",
         "arn:aws:lambda:us-east-1:451483290750:layer:NewRelicLambdaExtension:77"
@@ -265,7 +278,8 @@ run "eight_bounded_private_deployers" {
       ] &&
       !strcontains(local.executor_permission_profile_documents["functions_${environment}"], "secretsmanager:GetSecretValue") &&
       !strcontains(local.executor_permission_profile_documents["functions_${environment}"], environment == "staging" ? "production" : "staging") &&
-      !strcontains(jsonencode(one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "ReadOnlyPinnedNewRelicLayerVersions"])), ":*")
+      !strcontains(jsonencode(one([for statement in jsondecode(local.executor_permission_profile_documents["functions_${environment}"]).statements : statement if statement.Sid == "ReadOnlyPinnedNewRelicLayerVersions"])), ":*") &&
+      !strcontains(local.executor_permission_profile_documents["functions_${environment}"], "deployment-locks/*")
       ]) &&
       alltrue([for key in ["k8s_staging", "k8s_production", "db_staging", "db_production", "app_staging", "app_production"] :
         !strcontains(local.executor_permission_profile_documents[key], "lambda:AddPermission") &&

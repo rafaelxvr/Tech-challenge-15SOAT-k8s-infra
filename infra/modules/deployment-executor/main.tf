@@ -390,6 +390,19 @@ locals {
           Effect   = "Allow"
           Action   = ["logs:CreateLogGroup", "logs:DeleteLogGroup", "logs:PutRetentionPolicy", "logs:TagResource", "logs:UntagResource"]
           Resource = "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:/aws/lambda/${var.name}-${deployment.environment}-*"
+        },
+        {
+          Sid      = "ReadAndReleaseSharedFoundationLock"
+          Effect   = "Allow"
+          Action   = ["s3:GetObject", "s3:DeleteObject"]
+          Resource = "arn:aws:s3:::${var.state_bucket_name}/deployment-locks/shared-foundation.json"
+        },
+        {
+          Sid       = "AcquireSharedFoundationLockConditionally"
+          Effect    = "Allow"
+          Action    = "s3:PutObject"
+          Resource  = "arn:aws:s3:::${var.state_bucket_name}/deployment-locks/shared-foundation.json"
+          Condition = { StringEquals = { "s3:if-none-match" = "*" } }
         }
         ], try(local.function_gateway_binding_statements[deployment.environment], []), var.newrelic_layer_version_arns == null ? [] : [{
           Sid      = "ReadOnlyPinnedNewRelicLayerVersions"
