@@ -1,5 +1,24 @@
 mock_provider "aws" {}
 
+run "only_staging_app_can_inspect_shared_app_repository" {
+  command = plan
+  assert {
+    condition = one([for statement in jsondecode(local.executor_permission_profile_documents["app_staging"]).statements : statement if statement.Sid == "ReadOnlyStagingAppReleaseImages"]) == {
+      Sid      = "ReadOnlyStagingAppReleaseImages"
+      Effect   = "Allow"
+      Action   = ["ecr:DescribeImages", "ecr:BatchGetImage"]
+      Resource = "arn:aws:ecr:us-east-1:123456789012:repository/oficina-phase3-app"
+    }
+    error_message = "Only staging APP receives exact same-account APP image metadata reads, without wildcard or write actions."
+  }
+  assert {
+    condition = alltrue([for key, document in local.executor_permission_profile_documents :
+      !strcontains(document, "ReadOnlyStagingAppReleaseImages") && !strcontains(document, "repository/oficina-phase3-app") if key != "app_staging"
+    ]) && one([for statement in jsondecode(local.executor_permission_profile_documents["app_production"]).statements : statement if statement.Sid == "ReadOnlyEnvironmentContainerImages"]).Resource == "arn:aws:ecr:us-east-1:123456789012:repository/oficina-phase3-production-*"
+    error_message = "Production and other repository executors must not gain access to the shared APP image repository."
+  }
+}
+
 variables {
   name                  = "oficina-phase3"
   aws_region            = "us-east-1"
