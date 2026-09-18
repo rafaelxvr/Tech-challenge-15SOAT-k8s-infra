@@ -1,5 +1,9 @@
 # Environment platform workloads
 
+For foundation-owned staging runtime IAM, see the optional
+[staging APP IRSA contract](staging-app-irsa.md). Production role inputs remain
+externally reviewed and unchanged.
+
 `k8s/platform` renders the staging and production platform workload package. It owns two isolated namespaces, application service account and release RBAC, secret-store references, the fixed `oficina-app` Service, target-group binding, workload capacity policy and network policies.
 
 The renderer requires an immutable us-east-1 ECR image and infrastructure-reference inputs. It refuses unresolved placeholders, mutable images, unsafe substitutions, cross-account principals and cross-environment runtime secret references. No secret value is accepted or written: the app, authorizer-trust and ingest inputs are exact Secrets Manager references used by the CSI provider. The ECR account must match the reviewed workload account.

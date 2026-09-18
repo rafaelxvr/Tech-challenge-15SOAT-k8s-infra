@@ -51,6 +51,16 @@ jobs:
           ./tests/workload-capacity-tests.ps1
       - name: Verify Terraform formatting
         run: terraform fmt -check -recursive
+      - name: Verify staging APP IRSA with mocked AWS
+        shell: bash
+        run: |
+          set -euo pipefail
+          terraform -chdir=infra/modules/staging-app-irsa init -backend=false -input=false -lockfile=readonly
+          terraform -chdir=infra/modules/staging-app-irsa validate
+          terraform -chdir=infra/modules/staging-app-irsa test
+          terraform -chdir=infra/foundation init -backend=false -input=false
+          terraform -chdir=infra/foundation validate
+          terraform -chdir=infra/foundation test -filter=tests/outputs.tftest.hcl
       - name: Verify monitoring Terraform and rendered New Relic collectors
         shell: bash
         run: |
