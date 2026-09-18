@@ -76,6 +76,8 @@ try {
     }
     $buildspec = $renderedBuildspecs.k8s_staging
     Assert-True ($buildspec -match 'reviewed_backend_key="environments/staging\.tfstate"') 'Terraform did not render the staging backend key into the CodeBuild buildspec.'
+    Assert-True ($renderedBuildspecs.functions_staging.Contains('ExpectedTerraformVariablesSha256')) 'The functions executor must pass the downloaded Terraform variables digest to deploy.ps1.'
+    Assert-True ($buildspec.Contains('reviewed_repository="oficina-k8s-infra"')) 'The Kubernetes executor must render its repository identity for the functions-only digest gate.'
 
     $buildspecLines = $buildspec -split "`r?`n"
     $start = [array]::FindIndex([string[]]$buildspecLines, [Predicate[string]]{ param($line) $line -match '^\s+set -euo pipefail$' })
