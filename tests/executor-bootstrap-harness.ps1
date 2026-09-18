@@ -75,8 +75,13 @@ try {
         Assert-True ($dbBuildspec.Contains("reviewed_tfvars_path=`"/tmp/oficina/database_$environment.tfvars.json`"")) "DB $environment bootstrap must use the approved trusted tfvars path."
     }
     $buildspec = $renderedBuildspecs.k8s_staging
+    $functionsBuildspec = $renderedBuildspecs.functions_staging
     Assert-True ($buildspec -match 'reviewed_backend_key="environments/staging\.tfstate"') 'Terraform did not render the staging backend key into the CodeBuild buildspec.'
-    Assert-True ($renderedBuildspecs.functions_staging.Contains('ExpectedTerraformVariablesSha256')) 'The functions executor must pass the downloaded Terraform variables digest to deploy.ps1.'
+    Assert-True ($functionsBuildspec.Contains('ExpectedTerraformVariablesSha256')) 'The functions executor must pass the downloaded Terraform variables digest to deploy.ps1.'
+    Assert-True ($functionsBuildspec.Contains('-StateBucket "${reviewed_backend_bucket}" -SharedFoundationMutation')) 'The functions executor must pass the reviewed shared state bucket and mutation lock switch to deploy.ps1.'
+    $functionsLockGuard = 'if [ "${reviewed_repository}" = "oficina-functions" ]; then'
+    Assert-True ($functionsBuildspec.Contains($functionsLockGuard)) 'The functions shared foundation lock arguments must be guarded by the reviewed functions repository identity.'
+    Assert-True ($functionsBuildspec.IndexOf('-StateBucket "${reviewed_backend_bucket}" -SharedFoundationMutation') -gt $functionsBuildspec.IndexOf($functionsLockGuard)) 'The functions shared foundation lock arguments must be assigned inside the functions-only guard.'
     Assert-True ($buildspec.Contains('reviewed_repository="oficina-k8s-infra"')) 'The Kubernetes executor must render its repository identity for the functions-only digest gate.'
 
     $buildspecLines = $buildspec -split "`r?`n"
@@ -176,6 +181,7 @@ printf '%s\n' "$*" >> "$CAPTURE_FILE"
         $pwshCalls = Get-Content -LiteralPath $pwshCapture -Raw
         Assert-True ($terraformCalls -match 'init.*-backend-config=bucket=oficina-phase3-state-example.*-backend-config=key=environments/staging.tfstate.*-backend-config=region=us-east-1') 'The rendered bootstrap did not pass its literal reviewed backend arguments through deploy.ps1 to terraform init.'
         Assert-True ($pwshCalls -match '-TerraformVariablesFile /tmp/oficina/k8s_staging\.tfvars\.json') 'The rendered bootstrap did not pass its literal reviewed tfvars path through deploy.ps1.'
+        Assert-True ($pwshCalls -notmatch 'ExpectedTerraformVariablesSha256|StateBucket|SharedFoundationMutation') 'Kubernetes bootstrap must not receive functions-only Terraform digest or shared lock arguments.'
         Assert-True ($pwshCalls -notmatch 'attacker\.tfvars\.json' -and $pwshCalls -notmatch 'ApplyReviewedPlan' -and $terraformCalls -notmatch 'apply') 'StartBuild mode and tfvars overrides must not reach deploy or Terraform apply.'
 
         Remove-Item -LiteralPath $capture -Force

@@ -581,8 +581,12 @@ locals {
             apply_switch=()
             if [ "$${reviewed_deployment_mode}" = "apply" ]; then apply_switch=(-ApplyReviewedPlan); fi
             functions_tfvars_digest_switch=()
-            if [ "$${reviewed_repository}" = "oficina-functions" ]; then functions_tfvars_digest_switch=(-ExpectedTerraformVariablesSha256 "$${EXPECTED_TFVARS_SHA256}"); fi
-            pwsh -NoLogo -NoProfile -File "$${workdir}/release/scripts/deploy.ps1" -Environment "$${reviewed_environment}" -ReleaseManifest "$${workdir}/release-manifest.json" -ExpectedSourceSha256 "$${EXPECTED_SHA256}" -ExpectedManifestSha256 "$${EXPECTED_MANIFEST_SHA256}" "$${functions_tfvars_digest_switch[@]}" -SourceCommit "$${SOURCE_COMMIT}" -ExpectedDeployerImageDigest "$${DEPLOYER_IMAGE_DIGEST}" -TerraformVariablesFile "$${reviewed_tfvars_path}" -TerraformBackendBucket "$${reviewed_backend_bucket}" -TerraformBackendKey "$${reviewed_backend_key}" -TerraformBackendLockKey "$${reviewed_backend_lock_key}" -TerraformBackendRegion "$${reviewed_backend_region}" "$${apply_switch[@]}"
+            functions_shared_lock_switch=()
+            if [ "$${reviewed_repository}" = "oficina-functions" ]; then
+              functions_tfvars_digest_switch=(-ExpectedTerraformVariablesSha256 "$${EXPECTED_TFVARS_SHA256}")
+              functions_shared_lock_switch=(-StateBucket "$${reviewed_backend_bucket}" -SharedFoundationMutation)
+            fi
+            pwsh -NoLogo -NoProfile -File "$${workdir}/release/scripts/deploy.ps1" -Environment "$${reviewed_environment}" -ReleaseManifest "$${workdir}/release-manifest.json" -ExpectedSourceSha256 "$${EXPECTED_SHA256}" -ExpectedManifestSha256 "$${EXPECTED_MANIFEST_SHA256}" "$${functions_tfvars_digest_switch[@]}" "$${functions_shared_lock_switch[@]}" -SourceCommit "$${SOURCE_COMMIT}" -ExpectedDeployerImageDigest "$${DEPLOYER_IMAGE_DIGEST}" -TerraformVariablesFile "$${reviewed_tfvars_path}" -TerraformBackendBucket "$${reviewed_backend_bucket}" -TerraformBackendKey "$${reviewed_backend_key}" -TerraformBackendLockKey "$${reviewed_backend_lock_key}" -TerraformBackendRegion "$${reviewed_backend_region}" "$${apply_switch[@]}"
   YAML
   # This is the exact buildspec passed to each aws_codebuild_project.deploy
   # source block below. Tests render this local through Terraform, then run
