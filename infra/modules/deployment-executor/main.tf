@@ -267,6 +267,15 @@ locals {
           Resource = "arn:aws:lambda:${var.aws_region}:${var.account_id}:function:${var.name}-${deployment.environment}-*"
         },
         {
+          Sid    = "ReadOnlyEnvironmentFunctionCodeSigningConfigurations"
+          Effect = "Allow"
+          Action = ["lambda:GetFunctionCodeSigningConfig"]
+          Resource = [
+            for function_name in ["authorizer", "challenge", "verification", "notification"] :
+            "arn:aws:lambda:${var.aws_region}:${var.account_id}:function:${var.name}-${deployment.environment}-${function_name}"
+          ]
+        },
+        {
           Sid      = "ManageOnlyEnvironmentFunctionEventMappings"
           Effect   = "Allow"
           Action   = ["lambda:CreateEventSourceMapping", "lambda:UpdateEventSourceMapping", "lambda:DeleteEventSourceMapping", "lambda:ListEventSourceMappings"]
