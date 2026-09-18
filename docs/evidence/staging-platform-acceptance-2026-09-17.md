@@ -19,7 +19,7 @@ This record captures the successful K8S staging platform run only. It does not a
 | Foundation-addons CodeBuild project | `oficina-phase3-foundation-addons` |
 | Foundation-addons build | `ce09aea5-6098-4877-af19-f32cee9b2414` (`SUCCEEDED`) |
 | Foundation-addons source commit | `687ef6bb17ae48b010346c28a7361ac0b0f5c75f` |
-| Foundation-addons manifest object version | `agDIgGPvKkyC9X1vGvX.wz_iDtd3tX_N` |
+| Foundation-addons manifest object version | `4kUxpoE1kWxLnaZhWmZJUf9qLZjML4I2` |
 
 The build log recorded Terraform initialization, validation, refresh, and `Apply complete! Resources: 0 added, 0 changed, 0 destroyed.` The K8S CodeBuild log is available in [CloudWatch](https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#logsV2:log-groups/log-group/$252Faws$252Fcodebuild$252Foficina-phase3-oficina-k8s-infra-staging-deploy/log-events/deploy$252F1adfe0ed-fde6-4ac7-9a9b-b605b2a9142c).
 
