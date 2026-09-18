@@ -293,9 +293,10 @@ locals {
           Sid    = "ReadOnlyEnvironmentEventSourceMappingMetadata"
           Effect = "Allow"
           Action = ["lambda:GetEventSourceMapping", "lambda:ListTags"]
-          # Lambda mapping metadata APIs address generated event-source
-          # mapping ARNs and cannot use the function ARN condition above.
-          Resource = "arn:aws:lambda:${var.aws_region}:${var.account_id}:event-source-mapping:*"
+          # Lambda mapping metadata APIs evaluate these read-only calls against
+          # the wildcard resource, so keep this statement separate from the
+          # function-scoped mapping management actions above.
+          Resource = "*"
         },
         {
           Sid      = "ManageOnlyEnvironmentFunctionInvokePermissions"
