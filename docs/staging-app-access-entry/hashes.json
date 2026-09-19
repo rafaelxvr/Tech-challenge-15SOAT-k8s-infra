@@ -1,0 +1,11 @@
+{
+  "infra/modules/platform-environment/main.tf": "4fca4e84dc0d6e5b188ceb9bf0d4215f113cd715c83810a87e76e825b1852c53",
+  "infra/modules/platform-environment/variables.tf": "a23a1ba5f109d6a90a3d8a0440005a774e069fedcb4dbe6b7cecd0a53aa3a251",
+  "infra/modules/platform-environment/tests/app-access.tftest.hcl": "774ecfaf51739687c4162a3c97e2b7ddf42ac0b14fa91e552e698d2662109294",
+  "infra/environments/staging/main.tf": "1b171e3c3a4a7711a91ae685bd77a3134ae03fd642ce4a178a8ddb4adc66e623",
+  "infra/environments/staging/tests/platform.tftest.hcl": "3b9f44452bee5f6bf5af94547fcc4a19fec3ed3d0547b9b26fcc87f9840fb3c8",
+  "tests/staging-app-access-entry-contract.ps1": "301eecf3c32f8d1b9a9a728154cae7e5c7ff8dacd53a3fc17bc7c51e73212c5b",
+  "docs/staging-app-access-entry.md": "ca2c84e13c4adb24322c864b67e88da9c6ae3a9cd4da183906a17a807fae0401",
+  "docs/staging-app-access-entry/create-candidate.json": "c2370f75f88b6b05d2b1da2ec24058fb7b6a20593f78897a4a1ebcd860a46e93",
+  "docs/staging-app-access-entry/rollback-candidate.json": "4d9834692a9908cf76539a33849f35cc324f73dfaa7a30a60eb16c47c8d6a524"
+}

@@ -167,3 +167,20 @@ resource "aws_eks_access_entry" "deployer" {
   principal_arn = var.deployer_principal_arn
   type          = "STANDARD"
 }
+
+# Keep the platform executor's existing identity separate. The APP RoleBinding
+# names the literal IAM ARN, so the default STS session username would not match.
+# No EKS access-policy association is granted: namespace RBAC remains authoritative.
+resource "aws_eks_access_entry" "app_deployer" {
+  count             = var.app_deployer_principal_arn == null ? 0 : 1
+  cluster_name      = var.cluster_name
+  principal_arn     = var.app_deployer_principal_arn
+  user_name         = var.app_deployer_principal_arn
+  type              = "STANDARD"
+  kubernetes_groups = []
+  tags = {
+    project     = var.name
+    environment = "staging"
+    owner       = "oficina-k8s-infra"
+  }
+}

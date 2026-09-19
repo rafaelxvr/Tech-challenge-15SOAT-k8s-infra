@@ -12,7 +12,10 @@ run "staging_binds_only_staging_platform_contract" {
       cluster_name          = "oficina"
       vpc_link_id           = "abc123"
       backend_listener_arns = { staging = "arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/oficina/1234567890abcdef/abcdef1234567890" }
-      codebuild_projects    = { k8s_staging = { roleArn = "arn:aws:iam::123456789012:role/oficina-k8s-staging-deploy" } }
+      codebuild_projects = {
+        k8s_staging = { roleArn = "arn:aws:iam::123456789012:role/oficina-k8s-staging-deploy" }
+        app_staging = { roleArn = "arn:aws:iam::123456789012:role/oficina-phase3-oficina-app-staging-deploy-role" }
+      }
     }
     authorizer_handoff = {
       api_id        = "abc123"

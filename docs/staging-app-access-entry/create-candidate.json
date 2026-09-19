@@ -1,0 +1,12 @@
+{
+  "clusterName": "oficina-phase3",
+  "principalArn": "arn:aws:iam::638612472889:role/oficina-phase3-oficina-app-staging-deploy-role",
+  "type": "STANDARD",
+  "username": "arn:aws:iam::638612472889:role/oficina-phase3-oficina-app-staging-deploy-role",
+  "kubernetesGroups": [],
+  "tags": {
+    "project": "oficina-phase3",
+    "environment": "staging",
+    "owner": "oficina-k8s-infra"
+  }
+}
