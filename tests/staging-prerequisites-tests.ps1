@@ -14,18 +14,31 @@ function Invoke-MockedKube {
    if($a[5] -ceq 'namespace'){return '{"kind":"Namespace","metadata":{"name":"oficina-staging"},"status":{"phase":"Active"}}'}
    if($a[5] -ceq 'pods'){return '{"items":[]}'}
    if($f.failure -ceq 'null'){return 'null'}
+   if($f.failure -ceq 'readback-failed' -and $f.objects.Count -gt 0){$global:LASTEXITCODE=1;return 'readback failed'}
    $key=$a[5]+'/'+$a[6];if($f.objects.ContainsKey($key)){return ($f.objects[$key]|ConvertTo-Json -Depth 70 -Compress)};return ''
  }
  if($verb -ceq 'create'){
    if($a -contains '--dry-run=server'){if($f.failure -ceq 'dry-run'){$global:LASTEXITCODE=1};return '{}'}
    if($f.failure -ceq 'race'){$global:LASTEXITCODE=1;return 'AlreadyExists'}
-   $object=Get-Content $a[-1] -Raw|ConvertFrom-Json;$object.metadata|Add-Member uid ([guid]::NewGuid().ToString());$object.metadata|Add-Member resourceVersion '100'
+   $objectPath=$a[[array]::IndexOf($a,'-f')+1]
+   $object=Get-Content $objectPath -Raw|ConvertFrom-Json;$object.metadata|Add-Member uid ([guid]::NewGuid().ToString());$object.metadata|Add-Member resourceVersion '100'
    if($object.kind -ceq 'Service'){$object.spec|Add-Member clusterIP '10.100.0.1';$object.spec|Add-Member sessionAffinity 'None';$object.spec|Add-Member internalTrafficPolicy 'Cluster';$object.spec.ports[0]|Add-Member protocol 'TCP'}
-   $f.objects[$object.kind+'/'+$object.metadata.name]=$object;return '{}'
+   $f.objects[$object.kind+'/'+$object.metadata.name]=$object
+   $createdJson=$object|ConvertTo-Json -Depth 70 -Compress
+   if($f.objects.Count -eq 1){
+     switch($f.failure){
+       'window-expired' {$f.NowUtc=[DateTimeOffset]::UtcNow.AddHours(2).ToString('o')}
+       'window-replaced' {[IO.File]::AppendAllText($f.windowPath,"`n")}
+       'bundle-replaced' {[IO.File]::AppendAllText($f.bundlePath,"`n")}
+       'source-replaced' {[IO.File]::AppendAllText($f.sourcePath,'changed')}
+       'object-replaced' {[IO.File]::AppendAllText((Join-Path (Split-Path -Parent $objectPath) $f.nextObjectFile),"`n")}
+       'uid-replaced' {$object.metadata.uid=[guid]::NewGuid().ToString();$object.metadata.resourceVersion='101'}
+     }
+   };return $createdJson
  }
  throw 'Unexpected cluster operation'
 }
-function Fixture { $global:prereqFixture=@{objects=@{};calls=[Collections.Generic.List[string]]::new();failure=''} }
+function Fixture { $global:prereqFixture=@{objects=@{};calls=[Collections.Generic.List[string]]::new();failure='';NowUtc=[DateTimeOffset]::UtcNow.ToString('o')} }
 try{
  $commit='a'*40;$kcommit='b'*40
  $inputs=@{Environment='staging';Image=('123456789012.dkr.ecr.us-east-1.amazonaws.com/oficina-app@sha256:'+('a'*64));AppIrsaRoleArn='arn:aws:iam::123456789012:role/oficina-staging-app';DeployerPrincipalArn='arn:aws:iam::123456789012:role/oficina-app-deploy';PlatformBindingPrincipalArn='arn:aws:iam::123456789012:role/oficina-platform-binding';DbHost='db.oficina.internal';DbCidr='10.20.0.0/24';AlbSubnetCidrOne='10.42.0.0/24';AlbSubnetCidrTwo='10.42.1.0/24';AppSecretArn='arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/staging/app-AbCdEf';AuthorizerTrustSecretArn='arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/staging/authorizer-trust-AbCdEf';NewRelicIngestSecretArn='arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/staging/newrelic-ingest-AbCdEf';NewRelicAccountId='1234567';OutputDirectory=$temp}
@@ -45,6 +58,8 @@ try{
  foreach($field in @('TerraformOutputsVersionId','TerraformOutputsKey','ExpectedTerraformOutputsSha256')){$bad=$render.Clone();$bad[$field]='';Reject {& "$repo/scripts/render-staging-prerequisites.ps1" @bad}}
  New-Item -ItemType Directory "$temp/scripts"|Out-Null
  foreach($file in @('install-staging-prerequisites.ps1','staging-prerequisites-contract.ps1','check-cloud-window.ps1')){Copy-Item "$repo/scripts/$file" "$temp/scripts/$file"}
+ Copy-Item "$temp/scripts/check-cloud-window.ps1" "$temp/scripts/check-cloud-window-real.ps1"
+ 'param($EvidenceFile,$Environment); & "$PSScriptRoot/check-cloud-window-real.ps1" -EvidenceFile $EvidenceFile -Environment $Environment -NowUtc $global:prereqFixture.NowUtc'|Set-Content "$temp/scripts/check-cloud-window.ps1"
  'param($Action,$StateBucket,$OwnerToken);$global:prereqFixture.calls.Add("lock $Action")'|Set-Content "$temp/scripts/deployment-lock.ps1"
  'reviewed source'|Set-Content "$temp/source.zip"
  Save @{windowStartUtc=[DateTimeOffset]::UtcNow.AddHours(-1).ToString('o');windowEndUtc=[DateTimeOffset]::UtcNow.AddHours(1).ToString('o');recordedAtUtc=[DateTimeOffset]::UtcNow.ToString('o');accountEvidenceReference='review/fixture';projectAllowanceUsd=100;reserveUsd=10;currentEstimatedSpendUsd=1} "$temp/window.json"
@@ -60,6 +75,30 @@ try{
  $keep=$global:prereqFixture.objects['Service/oficina-app'];Fixture;$global:prereqFixture.objects['Service/oficina-app']=$keep;Reject {& "$temp/scripts/install-staging-prerequisites.ps1" @run -ExecuteReviewedCreation}
  Assert (-not(($global:prereqFixture.calls-join "`n") -match 'create|patch|delete|apply')) 'Partial bundle must stop without writes'
  foreach($failure in @('null','dry-run','race')){Fixture;$global:prereqFixture.failure=$failure;Reject {& "$temp/scripts/install-staging-prerequisites.ps1" @run -ExecuteReviewedCreation};Assert ($global:prereqFixture.objects.Count -eq 0) 'Failure/race cannot create or overwrite objects'}
+ $originalWindow=[IO.File]::ReadAllBytes("$temp/window.json");$originalBundle=[IO.File]::ReadAllBytes($path);$originalSource=[IO.File]::ReadAllBytes("$temp/source.zip")
+ foreach($failure in @('window-expired','window-replaced','bundle-replaced','source-replaced','object-replaced')){
+   Fixture;$f=$global:prereqFixture;$f.failure=$failure;$f.windowPath="$temp/window.json";$f.bundlePath=$path;$f.sourcePath="$temp/source.zip";$f.nextObjectFile="$($bundle.objects[1].kind)-$($bundle.objects[1].metadata.name).json"
+   try{
+     Reject {& "$temp/scripts/install-staging-prerequisites.ps1" @run -ExecuteReviewedCreation}
+     Assert ($f.objects.Count -eq 1 -and @($f.calls|Where-Object {$_ -match ' create -f '}).Count -eq 1) 'Expiry or replaced inputs must stop before the second persistent CREATE.'
+     Assert ($f.calls[-1] -ceq 'lock Release') 'Failure must release only its owned lock.'
+     $pending=Get-Content "$temp/readback/platform-prerequisites-readback.json" -Raw|ConvertFrom-Json
+     Assert ($pending.status -ceq 'EXECUTION_PENDING') 'Interrupted creation must not retain success.'
+     $partial=Get-Content "$temp/readback/created-objects.json" -Raw|ConvertFrom-Json -NoEnumerate
+     Assert ($partial.Count -eq 1) 'The one created object must retain ownership/readback evidence.'
+   }finally{[IO.File]::WriteAllBytes("$temp/window.json",$originalWindow);[IO.File]::WriteAllBytes($path,$originalBundle);[IO.File]::WriteAllBytes("$temp/source.zip",$originalSource)}
+ }
+ foreach($failure in @('readback-failed','uid-replaced')){
+   Fixture;$f=$global:prereqFixture;$f.failure=$failure
+   Reject {& "$temp/scripts/install-staging-prerequisites.ps1" @run -ExecuteReviewedCreation}
+   Assert (@($f.calls|Where-Object {$_ -match ' create -f '}).Count -eq 1) 'Readback failure/replacement must stop further CREATEs.'
+   $responses=Get-Content "$temp/readback/create-responses.json" -Raw|ConvertFrom-Json -NoEnumerate
+   Assert ($responses.Count -eq 1 -and $responses[0].metadata.resourceVersion -ceq '100') 'CREATE response UID/RV must survive GET failure independently.'
+   $owned=Get-Content "$temp/readback/created-objects.json" -Raw|ConvertFrom-Json -NoEnumerate
+   Assert ($owned.Count -eq 0) 'Failed or replaced readback cannot become verified ownership/rollback evidence.'
+   if($failure -ceq 'uid-replaced'){Assert ($responses[0].metadata.uid -cne @($f.objects.Values)[0].metadata.uid) 'Capture must retain CREATE UID, never the replacement UID.'}
+   Assert ((Get-Content "$temp/readback/platform-prerequisites-readback.json" -Raw|ConvertFrom-Json).status -ceq 'EXECUTION_PENDING') 'Ownership failure must never emit success.'
+ }
  $prepare=@{Enabled='true';AccountId='123456789012';ArtifactBucket='fixture-artifact-bucket';StateBucket='fixture-state-bucket';SourceVersionId='source-version';SourceSha256=$run.ExpectedSourceSha256;K8sSourceCommit=$kcommit;AppSourceCommit=$commit;BundleFile=$path;BundleSha256=$sha;BundleVersionId='bundle-version';WindowFile="$temp/window.json";WindowSha256=$run.ExpectedWindowSha256;WindowVersionId='window-version';OutputDirectory="$temp/payload"}
  Reject {& "$repo/scripts/prepare-staging-prerequisites-execution.ps1" @prepare}
  & "$repo/scripts/prepare-staging-prerequisites-execution.ps1" @prepare -CreateReviewedObjects|Out-Null
