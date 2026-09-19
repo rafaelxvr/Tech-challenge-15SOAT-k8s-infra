@@ -1,0 +1,9 @@
+{
+  "lock-policy-before.json": "02d31dda10b437d9d0f384e9a38af9eb941878839a84c4e1969521041e018831",
+  "lock-policy-after.json": "ced49ea15d3072db038dd30b65bd96d35e99640915fe855cfa93ec067a784e26",
+  "lock-policy-additions.json": "5470625c857511506873fdbb99ddd99e8b529aa800ed05b413a377635e672eba",
+  "lock-permission-simulation.json": "95a1df023af9fb8b3aaa471af43a286fb636c84f4baf5b374d454f55ec32a9ed",
+  "put-role-policy.json": "a3d5fb80aa38181e45404c399ec5aae46979f99b34f0f0f830c29f3fb7be3629",
+  "rollback-role-policy.json": "c16274c46dc5ced1579d8340bf8ae68dc73695979ebec76cbea51968b02468c7",
+  "render-lock-policy.ps1": "4339432f57d632eebb44834025c742ec74fb206dee85cafb0013fc337cbc319f"
+}

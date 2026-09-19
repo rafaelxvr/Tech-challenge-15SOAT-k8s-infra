@@ -1,0 +1,171 @@
+{
+    "RoleName": "oficina-phase3-oficina-app-staging-deploy-role",
+    "PolicyName": "bounded-deployment-executor",
+    "PolicyDocument": {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Action": [
+                    "s3:GetObject",
+                    "s3:GetObjectVersion"
+                ],
+                "Effect": "Allow",
+                "Resource": "arn:aws:s3:::oficina-phase3-artifacts-16225b7358/releases/app/staging/*",
+                "Sid": "ReadOnlyReviewedSourcePrefix"
+            },
+            {
+                "Action": "logs:CreateLogGroup",
+                "Effect": "Allow",
+                "Resource": "arn:aws:logs:us-east-1:638612472889:log-group:/aws/codebuild/oficina-phase3-oficina-app-staging-deploy",
+                "Sid": "CreateOnlyThisBuildLogGroup"
+            },
+            {
+                "Action": [
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents"
+                ],
+                "Effect": "Allow",
+                "Resource": "arn:aws:logs:us-east-1:638612472889:log-group:/aws/codebuild/oficina-phase3-oficina-app-staging-deploy:log-stream:*",
+                "Sid": "WriteOnlyThisBuildLogGroup"
+            },
+            {
+                "Action": [
+                    "ec2:CreateNetworkInterface",
+                    "ec2:DescribeDhcpOptions",
+                    "ec2:DescribeNetworkInterfaces",
+                    "ec2:DeleteNetworkInterface",
+                    "ec2:DescribeSubnets",
+                    "ec2:DescribeSecurityGroups",
+                    "ec2:DescribeVpcs"
+                ],
+                "Effect": "Allow",
+                "Resource": "*",
+                "Sid": "CodeBuildVpcNetworkInterfaces"
+            },
+            {
+                "Action": "ec2:CreateNetworkInterfacePermission",
+                "Condition": {
+                    "ArnEquals": {
+                        "ec2:Subnet": [
+                            "arn:aws:ec2:us-east-1:638612472889:subnet/subnet-0e49c88c97a118461",
+                            "arn:aws:ec2:us-east-1:638612472889:subnet/subnet-06c013de9577c7f0b"
+                        ]
+                    },
+                    "StringEquals": {
+                        "ec2:AuthorizedService": "codebuild.amazonaws.com"
+                    }
+                },
+                "Effect": "Allow",
+                "Resource": "arn:aws:ec2:us-east-1:638612472889:network-interface/*",
+                "Sid": "CodeBuildVpcNetworkInterfacePermission"
+            },
+            {
+                "Action": [
+                    "ecr:BatchCheckLayerAvailability",
+                    "ecr:BatchGetImage",
+                    "ecr:GetDownloadUrlForLayer"
+                ],
+                "Effect": "Allow",
+                "Resource": "arn:aws:ecr:us-east-1:638612472889:repository/oficina-phase3-deployer",
+                "Sid": "PullOnlyPlatformDeployerImage"
+            },
+            {
+                "Action": "ecr:GetAuthorizationToken",
+                "Effect": "Allow",
+                "Resource": "*",
+                "Sid": "AuthenticateOnlyToPullPlatformImage"
+            },
+            {
+                "Action": "s3:ListBucket",
+                "Condition": {
+                    "StringLike": {
+                        "s3:prefix": [
+                            "app/staging.tfstate",
+                            "app/staging.tfstate.tflock"
+                        ]
+                    }
+                },
+                "Effect": "Allow",
+                "Resource": "arn:aws:s3:::oficina-phase3-state-16225b7358",
+                "Sid": "ListOnlyItsTerraformStatePrefix"
+            },
+            {
+                "Action": [
+                    "s3:GetObject",
+                    "s3:PutObject"
+                ],
+                "Effect": "Allow",
+                "Resource": "arn:aws:s3:::oficina-phase3-state-16225b7358/app/staging.tfstate",
+                "Sid": "ReadWriteOnlyItsTerraformState"
+            },
+            {
+                "Action": [
+                    "s3:GetObject",
+                    "s3:PutObject",
+                    "s3:DeleteObject"
+                ],
+                "Effect": "Allow",
+                "Resource": "arn:aws:s3:::oficina-phase3-state-16225b7358/app/staging.tfstate.tflock",
+                "Sid": "LockOnlyItsTerraformLockfile"
+            },
+            {
+                "Action": [
+                    "eks:DescribeCluster"
+                ],
+                "Effect": "Allow",
+                "Resource": "arn:aws:eks:us-east-1:638612472889:cluster/oficina-phase3",
+                "Sid": "RolloutOnlyReviewedCluster"
+            },
+            {
+                "Action": [
+                    "ecr:DescribeImages",
+                    "ecr:BatchGetImage"
+                ],
+                "Effect": "Allow",
+                "Resource": "arn:aws:ecr:us-east-1:638612472889:repository/oficina-phase3-staging-*",
+                "Sid": "ReadOnlyEnvironmentContainerImages"
+            },
+            {
+                "Action": [
+                    "ecr:DescribeImages",
+                    "ecr:BatchGetImage"
+                ],
+                "Effect": "Allow",
+                "Resource": "arn:aws:ecr:us-east-1:638612472889:repository/oficina-phase3-app",
+                "Sid": "ReadOnlyStagingAppReleaseImages"
+            },
+            {
+                "Action": [
+                    "secretsmanager:GetSecretValue"
+                ],
+                "Condition": {
+                    "StringEquals": {
+                        "aws:RequestedRegion": "us-east-1"
+                    }
+                },
+                "Effect": "Allow",
+                "Resource": [
+                    "arn:aws:secretsmanager:us-east-1:638612472889:secret:rds!db-b40a2e72-bac1-4772-b780-e00d5079a593-mynxoy",
+                    "arn:aws:secretsmanager:us-east-1:638612472889:secret:oficina/staging/migration-F30PM3",
+                    "arn:aws:secretsmanager:us-east-1:638612472889:secret:oficina/staging/app-6gGeZb",
+                    "arn:aws:secretsmanager:us-east-1:638612472889:secret:oficina/staging/auth-zNEIrm",
+                    "arn:aws:secretsmanager:us-east-1:638612472889:secret:oficina/staging/notification-l4pVTy"
+                ],
+                "Sid": "ReadOnlyReviewedApplicationBootstrapSecrets"
+            },
+            {
+                "Action": [
+                    "rds:DescribeDBInstances"
+                ],
+                "Condition": {
+                    "StringEquals": {
+                        "aws:RequestedRegion": "us-east-1"
+                    }
+                },
+                "Effect": "Allow",
+                "Resource": "arn:aws:rds:us-east-1:638612472889:db:oficina-phase3-staging-postgres",
+                "Sid": "DescribeOnlyReviewedApplicationBootstrapDatabase"
+            }
+        ]
+    }
+}

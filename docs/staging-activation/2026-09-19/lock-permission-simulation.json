@@ -1,0 +1,17 @@
+[
+    {
+        "Action": "s3:GetObject",
+        "Decision": "implicitDeny",
+        "Resource": "arn:aws:s3:::oficina-phase3-state-16225b7358/deployment-locks/shared-foundation.json"
+    },
+    {
+        "Action": "s3:PutObject",
+        "Decision": "implicitDeny",
+        "Resource": "arn:aws:s3:::oficina-phase3-state-16225b7358/deployment-locks/shared-foundation.json"
+    },
+    {
+        "Action": "s3:DeleteObject",
+        "Decision": "implicitDeny",
+        "Resource": "arn:aws:s3:::oficina-phase3-state-16225b7358/deployment-locks/shared-foundation.json"
+    }
+]

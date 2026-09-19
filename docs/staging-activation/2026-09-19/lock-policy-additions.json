@@ -1,0 +1,22 @@
+[
+  {
+    "Action": [
+      "s3:GetObject",
+      "s3:DeleteObject"
+    ],
+    "Effect": "Allow",
+    "Resource": "arn:aws:s3:::oficina-phase3-state-16225b7358/deployment-locks/shared-foundation.json",
+    "Sid": "ReadAndReleaseApplicationSharedFoundationLock"
+  },
+  {
+    "Action": "s3:PutObject",
+    "Condition": {
+      "StringEquals": {
+        "s3:if-none-match": "*"
+      }
+    },
+    "Effect": "Allow",
+    "Resource": "arn:aws:s3:::oficina-phase3-state-16225b7358/deployment-locks/shared-foundation.json",
+    "Sid": "AcquireApplicationSharedFoundationLockConditionally"
+  }
+]
