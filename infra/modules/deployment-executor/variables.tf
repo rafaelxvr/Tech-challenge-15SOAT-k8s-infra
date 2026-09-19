@@ -131,3 +131,33 @@ variable "deployments" {
     error_message = "deployments must contain exactly four repositories, each with one staging and one production project and a bounded S3 source prefix."
   }
 }
+
+variable "production_input_bindings" {
+  type = map(object({
+    enabled           = optional(bool, false)
+    launcher_enabled  = optional(bool, false)
+    role_arn          = string
+    source_commit     = string
+    review_object_key = string
+    review_version_id = string
+    review_sha256     = string
+    inputs_sha256     = string
+  }))
+  default     = {}
+  description = "Reviewed public production input ZIP identities for APP/FUN only. Empty defaults disable transport; apply additionally requires launcher_enabled and deployment_mode=apply. No caller environment override may enable these Terraform-owned gates."
+  validation {
+    condition = alltrue([for key, binding in var.production_input_bindings : try(
+      var.deployments[key].environment == "production" &&
+      contains(["oficina-app", "oficina-functions"], var.deployments[key].repository) &&
+      var.deployments[key].source_prefix == "releases/${trimprefix(var.deployments[key].repository, "oficina-")}/production" &&
+      var.deployments[key].terraform_state_key == "${trimprefix(var.deployments[key].repository, "oficina-")}/production.tfstate" &&
+      var.deployments[key].terraform_variables_path == "/tmp/oficina/${trimprefix(var.deployments[key].repository, "oficina-")}_production.tfvars.json" &&
+      can(regex("^arn:aws:iam::${var.account_id}:role/[A-Za-z0-9+=,.@_/-]*production[A-Za-z0-9+=,.@_/-]*$", binding.role_arn)) &&
+      can(regex("^[a-f0-9]{40}$", binding.source_commit)) &&
+      binding.review_object_key == "${var.deployments[key].source_prefix}/reviews/${binding.source_commit}/inputs.zip" &&
+      length(trimspace(binding.review_version_id)) > 0 && binding.review_version_id != "null" &&
+      can(regex("^[a-f0-9]{64}$", binding.review_sha256)) && can(regex("^[a-f0-9]{64}$", binding.inputs_sha256)), false)
+    ])
+    error_message = "Production bindings require an APP/FUN production project, canonical production prefix/state/tfvars, same-account production role, exact commit and immutable review ZIP/version/hashes."
+  }
+}

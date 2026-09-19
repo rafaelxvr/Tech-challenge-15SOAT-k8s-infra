@@ -453,12 +453,12 @@ locals {
           Effect   = "Allow"
           Action   = ["ecr:DescribeImages", "ecr:BatchGetImage"]
           Resource = "arn:aws:ecr:${var.aws_region}:${var.account_id}:repository/${var.name}-app"
-          }] : [], deployment.repository == "oficina-app" && deployment.environment == "staging" ? [{
+          }] : [], deployment.repository == "oficina-app" && (deployment.environment == "staging" || try(var.production_input_bindings[key].enabled, false)) ? [{
           Sid      = "ReadAndReleaseApplicationSharedFoundationLock"
           Effect   = "Allow"
           Action   = ["s3:GetObject", "s3:DeleteObject"]
           Resource = "arn:aws:s3:::${var.state_bucket_name}/deployment-locks/shared-foundation.json"
-          }] : [], deployment.repository == "oficina-app" && deployment.environment == "staging" ? [{
+          }] : [], deployment.repository == "oficina-app" && (deployment.environment == "staging" || try(var.production_input_bindings[key].enabled, false)) ? [{
           Sid       = "AcquireApplicationSharedFoundationLockConditionally"
           Effect    = "Allow"
           Action    = "s3:PutObject"
@@ -588,6 +588,20 @@ locals {
             reviewed_tfvars_path="__DEPLOYMENT_TFVARS_PATH__"
             reviewed_source_prefix="__SOURCE_PREFIX__"
             reviewed_account_id="__ACCOUNT_ID__"
+            reviewed_production_enabled="__PRODUCTION_TRANSPORT_ENABLED__"
+            if [ "$${reviewed_environment}" = "production" ] && { [ "$${reviewed_repository}" = "oficina-app" ] || [ "$${reviewed_repository}" = "oficina-functions" ]; }; then
+              if [ "$${reviewed_production_enabled}" != "true" ]; then
+                echo 'PRODUCTION_TRANSPORT_DISABLED'
+                exit 1
+              fi
+              if [ "$${SOURCE_BUCKET:-}" != "__ARTIFACT_BUCKET__" ] ||
+                 [ "$${SOURCE_KEY:-}" != "$${reviewed_source_prefix}/bundle.zip" ] ||
+                 [ "$${RELEASE_MANIFEST_KEY:-}" != "$${reviewed_source_prefix}/manifests/$${SOURCE_COMMIT:-}.json" ] ||
+                 [ "$${TFVARS_OBJECT_KEY:-}" != "$${reviewed_source_prefix}/config/$${SOURCE_COMMIT:-}.tfvars.json" ]; then
+                echo 'PRODUCTION_SOURCE_LOCATION_MISMATCH'
+                exit 1
+              fi
+            fi
             required=(DEPLOY_ENVIRONMENT SOURCE_BUCKET SOURCE_KEY SOURCE_VERSION_ID EXPECTED_SHA256 RELEASE_MANIFEST_KEY RELEASE_MANIFEST_VERSION_ID EXPECTED_MANIFEST_SHA256 SOURCE_COMMIT DEPLOYER_IMAGE_DIGEST)
             for variable in "$${required[@]}"; do
               if [ -z "$${!variable:-}" ]; then
@@ -708,6 +722,11 @@ locals {
                 -SourceKey "$${SOURCE_KEY}"
               )
             fi
+            if [ "$${reviewed_environment}" = "production" ] && { [ "$${reviewed_repository}" = "oficina-app" ] || [ "$${reviewed_repository}" = "oficina-functions" ]; }; then
+              printf '%s' '__PRODUCTION_TRANSPORT_SCRIPT__' | base64 --decode > "$${workdir}/production-input-transport.ps1"
+              pwsh -NoLogo -NoProfile -File "$${workdir}/production-input-transport.ps1" -BindingBase64 '__PRODUCTION_TRANSPORT_CONFIG__' -WorkDirectory "$${workdir}" -SourceCommit "$${SOURCE_COMMIT}" -ExpectedSourceSha256 "$${EXPECTED_SHA256}" -ExpectedManifestSha256 "$${EXPECTED_MANIFEST_SHA256}" -ExpectedTerraformVariablesSha256 "$${EXPECTED_TFVARS_SHA256}" -ExpectedDeployerImageDigest "$${DEPLOYER_IMAGE_DIGEST}"
+              exit $?
+            fi
             unzip -q "$${workdir}/bundle.zip" -d "$${workdir}/release"
             apply_switch=()
             if [ "$${reviewed_deployment_mode}" = "apply" ]; then apply_switch=(-ApplyReviewedPlan); fi
@@ -722,7 +741,7 @@ locals {
   # This is the exact buildspec passed to each aws_codebuild_project.deploy
   # source block below. Tests render this local through Terraform, then run
   # the resulting shell bootstrap with mocked process dependencies.
-  rendered_deployment_buildspecs = {
+  deployment_buildspecs_base = {
     for key, deployment in var.deployments : key => replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(
       local.inline_deployment_buildspec_template,
       "__DEPLOYMENT_ENVIRONMENT__", deployment.environment),
@@ -736,6 +755,26 @@ locals {
       "__SOURCE_PREFIX__", deployment.source_prefix),
     "__ACCOUNT_ID__", var.account_id)
   }
+  production_transport_configs = {
+    for key, deployment in var.deployments : key => jsonencode(merge({
+      enabled  = false, launcher_enabled = false
+      role_arn = "", source_commit = "", review_object_key = "", review_version_id = "", review_sha256 = "", inputs_sha256 = ""
+      }, try(var.production_input_bindings[key], {}), {
+      repository      = deployment.repository, environment = deployment.environment, source_prefix = deployment.source_prefix
+      artifact_bucket = var.artifact_bucket_name, state_bucket = var.state_bucket_name, account_id = var.account_id
+      project_name    = local.project_names[key], cluster_arn = var.cluster_arn, region = var.aws_region
+      tfvars_path     = deployment.terraform_variables_path, state_key = deployment.terraform_state_key
+      deployment_mode = deployment.deployment_mode, deployer_image_digest = var.deployer_image_digest
+    }))
+  }
+  rendered_deployment_buildspecs = {
+    for key, buildspec in local.deployment_buildspecs_base : key => replace(replace(replace(replace(
+      buildspec, "__PRODUCTION_TRANSPORT_ENABLED__", tostring(try(var.production_input_bindings[key].enabled, false))),
+      "__ARTIFACT_BUCKET__", var.artifact_bucket_name),
+      "__PRODUCTION_TRANSPORT_CONFIG__", base64encode(local.production_transport_configs[key])),
+    "__PRODUCTION_TRANSPORT_SCRIPT__", filebase64("${path.module}/production-input-transport.ps1"))
+  }
+
 }
 
 resource "aws_ecr_repository" "deployer" {
