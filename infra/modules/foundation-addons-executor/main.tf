@@ -58,6 +58,7 @@ locals {
       { Sid = "ListOnlyFoundationAddonsState", Effect = "Allow", Action = "s3:ListBucket", Resource = "arn:aws:s3:::${var.state_bucket_name}", Condition = { StringLike = { "s3:prefix" = [local.state_key, "${local.state_key}.tflock"] } } },
       { Sid = "ReadWriteOnlyFoundationAddonsState", Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject"], Resource = "arn:aws:s3:::${var.state_bucket_name}/${local.state_key}" },
       { Sid = "LockOnlyFoundationAddonsState", Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"], Resource = "arn:aws:s3:::${var.state_bucket_name}/${local.state_key}.tflock" },
+      { Sid = "SharedStagingPrerequisitesLock", Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"], Resource = "arn:aws:s3:::${var.state_bucket_name}/deployment-locks/shared-foundation.json" },
       { Sid = "DescribeOnlyPrivateCluster", Effect = "Allow", Action = "eks:DescribeCluster", Resource = var.cluster_arn },
       { Sid = "CodeBuildVpcNetworkInterfaces", Effect = "Allow", Action = local.codebuild_vpc_network_interface_actions, Resource = "*" },
       {
