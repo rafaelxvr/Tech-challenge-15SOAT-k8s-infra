@@ -33,7 +33,7 @@ variables {
 run "foundation_output_schema_is_bounded" {
   command = plan
   assert {
-    condition     = length(module.staging_app_irsa) == 0 && output.staging_app_irsa_role_arn == null
+    condition     = length(module.staging_app_irsa) == 0 && output.staging_app_irsa_role_arn == null && length(module.staging_migration_irsa) == 0 && output.staging_migration_identity_json == null
     error_message = "Existing foundation and production must create no APP role by default."
   }
   assert {

@@ -4,7 +4,7 @@
   value:
     apiGroups: [""]
     resources: ["serviceaccounts"]
-    resourceNames: ["oficina-app"]
+    resourceNames: ["oficina-app", "oficina-migration-staging"]
     verbs: ["get"]
 - op: add
   path: /rules/-
