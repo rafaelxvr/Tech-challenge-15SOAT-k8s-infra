@@ -58,7 +58,26 @@ locals {
       { Sid = "ListOnlyFoundationAddonsState", Effect = "Allow", Action = "s3:ListBucket", Resource = "arn:aws:s3:::${var.state_bucket_name}", Condition = { StringLike = { "s3:prefix" = [local.state_key, "${local.state_key}.tflock"] } } },
       { Sid = "ReadWriteOnlyFoundationAddonsState", Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject"], Resource = "arn:aws:s3:::${var.state_bucket_name}/${local.state_key}" },
       { Sid = "LockOnlyFoundationAddonsState", Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"], Resource = "arn:aws:s3:::${var.state_bucket_name}/${local.state_key}.tflock" },
-      { Sid = "SharedStagingPrerequisitesLock", Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"], Resource = "arn:aws:s3:::${var.state_bucket_name}/deployment-locks/shared-foundation.json" },
+      # HEAD and ETag-conditional release require GetObject; no version reads or
+      # bucket-wide listing are needed by deployment-lock.ps1.
+      { Sid = "ReadSharedStagingPrerequisitesLock", Effect = "Allow", Action = "s3:GetObject", Resource = "arn:aws:s3:::${var.state_bucket_name}/deployment-locks/shared-foundation.json" },
+      {
+        Sid       = "AcquireSharedStagingPrerequisitesLockConditionally"
+        Effect    = "Allow"
+        Action    = "s3:PutObject"
+        Resource  = "arn:aws:s3:::${var.state_bucket_name}/deployment-locks/shared-foundation.json"
+        Condition = { StringEquals = { "s3:if-none-match" = "*" } }
+      },
+      {
+        Sid      = "ReleaseSharedStagingPrerequisitesLockConditionally"
+        Effect   = "Allow"
+        Action   = "s3:DeleteObject"
+        Resource = "arn:aws:s3:::${var.state_bucket_name}/deployment-locks/shared-foundation.json"
+        Condition = {
+          Null            = { "s3:if-match" = "false" }
+          StringNotEquals = { "s3:if-match" = "*" }
+        }
+      },
       { Sid = "DescribeOnlyPrivateCluster", Effect = "Allow", Action = "eks:DescribeCluster", Resource = var.cluster_arn },
       { Sid = "CodeBuildVpcNetworkInterfaces", Effect = "Allow", Action = local.codebuild_vpc_network_interface_actions, Resource = "*" },
       {

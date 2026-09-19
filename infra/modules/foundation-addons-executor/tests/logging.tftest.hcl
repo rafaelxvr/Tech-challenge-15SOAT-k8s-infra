@@ -62,12 +62,32 @@ run "create_only_declared_build_log_group" {
   }
 }
 
-run "prerequisites_shared_lock_is_one_object" {
+run "prerequisites_shared_lock_is_conditional" {
   command = plan
   assert {
-    condition = one([for statement in jsondecode(local.policy).Statement : statement if statement.Sid == "SharedStagingPrerequisitesLock"]) == {
-      Sid = "SharedStagingPrerequisitesLock", Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"], Resource = "arn:aws:s3:::oficina-state-test/deployment-locks/shared-foundation.json"
-    }
-    error_message = "Prerequisite mode may touch only the existing shared deployment lock; no APP RBAC or production resources."
+    condition = [for statement in jsondecode(local.policy).Statement : statement if endswith(try(tostring(statement.Resource), ""), "/deployment-locks/shared-foundation.json")] == [
+      {
+        Sid = "ReadSharedStagingPrerequisitesLock", Effect = "Allow", Action = "s3:GetObject", Resource = "arn:aws:s3:::oficina-state-test/deployment-locks/shared-foundation.json"
+      },
+      {
+        Sid = "AcquireSharedStagingPrerequisitesLockConditionally", Effect = "Allow", Action = "s3:PutObject", Resource = "arn:aws:s3:::oficina-state-test/deployment-locks/shared-foundation.json",
+        Condition = { StringEquals = { "s3:if-none-match" = "*" } }
+      },
+      {
+        Sid = "ReleaseSharedStagingPrerequisitesLockConditionally", Effect = "Allow", Action = "s3:DeleteObject", Resource = "arn:aws:s3:::oficina-state-test/deployment-locks/shared-foundation.json",
+        Condition = { Null = { "s3:if-match" = "false" }, StringNotEquals = { "s3:if-match" = "*" } }
+      }
+    ]
+    error_message = "Only the exact shared lock may be read, created with If-None-Match *, or deleted with a non-wildcard If-Match."
+  }
+  assert {
+    condition = alltrue([for statement in jsondecode(local.policy).Statement : alltrue([
+      for action in flatten([statement.Action]) : !startswith(action, "iam:") && !startswith(action, "kms:") && !contains(["s3:GetObjectVersion", "s3:DeleteObjectVersion", "s3:ListBucketVersions"], action)
+    ]) if statement.Sid != "ReadOnlyFoundationAddonsBundle"])
+    error_message = "Runtime lock access must not grant diagnostic IAM, KMS, or state version permissions."
+  }
+  assert {
+    condition = one([for statement in jsondecode(local.policy).Statement : statement if statement.Sid == "ListOnlyFoundationAddonsState"]).Condition.StringLike["s3:prefix"] == ["foundation-addons/terraform.tfstate", "foundation-addons/terraform.tfstate.tflock"]
+    error_message = "No new ListBucket permission may be added for diagnostic convenience."
   }
 }
