@@ -1,0 +1,4 @@
+*.json -text
+*.yaml -text
+eks-audit-redacted.json whitespace=cr-at-eol
+README.md text eol=lf

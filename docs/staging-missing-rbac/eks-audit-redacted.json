@@ -1,0 +1,54 @@
+[
+  {
+    "timestampUtc": "2026-09-19T05:00:44.5130000+00:00",
+    "verb": "get",
+    "requestURI": "/apis/rbac.authorization.k8s.io/v1/namespaces/oficina-staging/roles/oficina-release-deployer?timeout=15s",
+    "username": "arn:aws:sts::638612472889:assumed-role/oficina-phase3-foundation-addons-role/AWSCodeBuild-0a0727e4-6208-48bf-be64-433deb4c9324",
+    "objectRef": {
+      "resource": "roles",
+      "namespace": "oficina-staging",
+      "name": "oficina-release-deployer",
+      "apiGroup": "rbac.authorization.k8s.io",
+      "apiVersion": "v1"
+    },
+    "responseStatus": {
+      "metadata": {},
+      "status": "Failure",
+      "message": "roles.rbac.authorization.k8s.io \"oficina-release-deployer\" not found",
+      "reason": "NotFound",
+      "details": {
+        "name": "oficina-release-deployer",
+        "group": "rbac.authorization.k8s.io",
+        "kind": "roles"
+      },
+      "code": 404
+    },
+    "authorizationDecision": "allow"
+  },
+  {
+    "timestampUtc": "2026-09-19T05:00:45.3980000+00:00",
+    "verb": "get",
+    "requestURI": "/apis/rbac.authorization.k8s.io/v1/namespaces/oficina-staging/rolebindings/oficina-release-deployer?timeout=15s",
+    "username": "arn:aws:sts::638612472889:assumed-role/oficina-phase3-foundation-addons-role/AWSCodeBuild-0a0727e4-6208-48bf-be64-433deb4c9324",
+    "objectRef": {
+      "resource": "rolebindings",
+      "namespace": "oficina-staging",
+      "name": "oficina-release-deployer",
+      "apiGroup": "rbac.authorization.k8s.io",
+      "apiVersion": "v1"
+    },
+    "responseStatus": {
+      "metadata": {},
+      "status": "Failure",
+      "message": "rolebindings.rbac.authorization.k8s.io \"oficina-release-deployer\" not found",
+      "reason": "NotFound",
+      "details": {
+        "name": "oficina-release-deployer",
+        "group": "rbac.authorization.k8s.io",
+        "kind": "rolebindings"
+      },
+      "code": 404
+    },
+    "authorizationDecision": "allow"
+  }
+]

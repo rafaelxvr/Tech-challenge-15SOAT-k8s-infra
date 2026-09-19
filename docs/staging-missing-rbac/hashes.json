@@ -1,0 +1,21 @@
+{
+  "sourceCommit": "e931decf57a8cfd7d178528bbcfac5432ebaf902",
+  "status": "REVIEW_ONLY_NO_CLOUD_EXECUTION",
+  "files": {
+    "scripts/render-staging-deployer-rbac.ps1": "2d4ce87568f9ef0e3096c3d95f67284c89841eb1b9be3e91a59d389698fac92e",
+    "tests/staging-deployer-rbac-candidate-tests.ps1": "b3c5559a905403224d27bc8ab63dc11f00de586dc4bc84dc1196f7ae2f526d65",
+    "k8s/platform/base/deployer-rbac.yaml": "51c018d6d9a222ec451e2850baa47469acce91a833832841933df6ac13b483f7",
+    "k8s/platform/base/kustomization.yaml": "b5fe37b2c5f279337d6e9d0dd5218c44da6de3e6f0d96850cd7d4b030eb97dad",
+    "k8s/platform/overlays/staging/kustomization.yaml": "982c6ccfa13cbf8bb78b5eed99cb614e4d3ea5a9fea73473c82a880be6f24cde",
+    "k8s/platform/overlays/staging/app-bootstrap-rbac.yaml": "58ac48a3672de615eb5b2b339e5a75a27b75a3333d23134ec25c2bacca7028f2",
+    "docs/staging-missing-rbac/staging-release-rbac.json": "c6376b4c5e4e9e65676612e0843334782806dbfb4b96963d1c14ffd75f2974ac",
+    "docs/staging-missing-rbac/staging-release-rbac.yaml": "559a44c0ffc077e0d61ca07b24e0b56c15d6473bb8b850fd6c4d9f360a327b9a",
+    "docs/staging-missing-rbac/candidate-plan.json": "e2587875cef4a4da329423f4d001794460bf9570ce7a4163b6a61e0e7f576854",
+    "docs/staging-missing-rbac/eks-audit-redacted.json": "3b85c79c24c959a15637c73c38d3443478223ddf578ca30e557faed00f1a11c3",
+    "docs/staging-missing-rbac/README.md": "4e415fa15537c82117745de6f977a56d9f89b1ef0ef1dc9561390ce2deda03dd"
+  },
+  "hashConventions": {
+    "sourceAndDocumentation": "UTF-8 LF-normalized text",
+    "generatedJsonYamlAndAudit": "exact bytes, Git -text"
+  }
+}
