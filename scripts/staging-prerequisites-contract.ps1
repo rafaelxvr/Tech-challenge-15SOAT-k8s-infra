@@ -33,11 +33,11 @@ function Read-StagingPrerequisites([string]$Json,[string]$ExpectedSha256,[string
     if($serialized -match 'oficina(?:/|-)(?:phase3-)?production|/production/'){throw 'PREREQUISITES_PRODUCTION_REFERENCE_FORBIDDEN'}
     foreach($match in [regex]::Matches($serialized,'arn:aws:[^"\s\\]+')){if($match.Value -cnotmatch "^arn:aws:[^:]+:(us-east-1)?:${account}:"){throw 'PREREQUISITES_FOREIGN_AWS_REFERENCE'}}
     $service=@($bundle.objects|Where-Object kind -CEQ 'Service')[0]
-    if($service.spec.type -cne 'ClusterIP' -or $service.spec.selector.'app.kubernetes.io/name' -cne 'oficina-app'){throw 'PREREQUISITES_INTERNAL_SERVICE_REQUIRED'}
+    if($service.spec.type -isnot [string] -or $service.spec.type -cne 'ClusterIP' -or $service.spec.selector.'app.kubernetes.io/name' -isnot [string] -or $service.spec.selector.'app.kubernetes.io/name' -cne 'oficina-app'){throw 'PREREQUISITES_INTERNAL_SERVICE_REQUIRED'}
     $sa=@($bundle.objects|Where-Object kind -CEQ 'ServiceAccount')[0]
-    if($sa.automountServiceAccountToken -isnot [bool] -or $sa.automountServiceAccountToken -or $sa.metadata.annotations.'eks.amazonaws.com/role-arn' -cne "arn:aws:iam::${account}:role/oficina-phase3-staging-migration"){throw 'PREREQUISITES_MIGRATION_IDENTITY_REQUIRED'}
+    if($sa.automountServiceAccountToken -isnot [bool] -or $sa.automountServiceAccountToken -or $sa.metadata.annotations.'eks.amazonaws.com/role-arn' -isnot [string] -or $sa.metadata.annotations.'eks.amazonaws.com/role-arn' -cne "arn:aws:iam::${account}:role/oficina-phase3-staging-migration"){throw 'PREREQUISITES_MIGRATION_IDENTITY_REQUIRED'}
     $binding=@($bundle.objects|Where-Object kind -CEQ 'TargetGroupBinding')[0]
-    if($binding.spec.targetGroupARN -isnot [string] -or $binding.spec.targetGroupARN -cne $bundle.targetGroupArn -or $binding.spec.targetType -cne 'ip' -or $binding.spec.serviceRef.name -cne 'oficina-app' -or $binding.spec.serviceRef.port -ne 8080){throw 'PREREQUISITES_TARGET_BINDING_INVALID'}
+    if($binding.spec.targetGroupARN -isnot [string] -or $binding.spec.targetGroupARN -cne $bundle.targetGroupArn -or $binding.spec.targetType -isnot [string] -or $binding.spec.targetType -cne 'ip' -or $binding.spec.serviceRef.name -isnot [string] -or $binding.spec.serviceRef.port -isnot [long] -or $binding.spec.serviceRef.name -cne 'oficina-app' -or $binding.spec.serviceRef.port -ne 8080){throw 'PREREQUISITES_TARGET_BINDING_INVALID'}
     return $bundle
 }
 function Assert-PrerequisiteReadback($Actual,$Expected){
@@ -45,7 +45,7 @@ function Assert-PrerequisiteReadback($Actual,$Expected){
     foreach($field in @('name','namespace')){if($Actual.metadata.$field -isnot [string]){throw 'PREREQUISITES_READBACK_SCALAR_REQUIRED'}}
     if($Actual -isnot [pscustomobject] -or $Actual.kind -cne $Expected.kind -or $Actual.apiVersion -cne $Expected.apiVersion -or $Actual.metadata.name -cne $Expected.metadata.name -or $Actual.metadata.namespace -cne 'oficina-staging'){throw 'PREREQUISITES_READBACK_IDENTITY_MISMATCH'}
     foreach($field in @('uid','resourceVersion')){if($Actual.metadata.$field -isnot [string] -or [string]::IsNullOrWhiteSpace($Actual.metadata.$field)){throw 'PREREQUISITES_READBACK_METADATA_REQUIRED'}}
-    foreach($field in @('labels','annotations')){if($null -ne $Expected.metadata.PSObject.Properties[$field]){foreach($p in $Expected.metadata.$field.PSObject.Properties){if($Actual.metadata.$field.($p.Name) -cne $p.Value){throw 'PREREQUISITES_METADATA_DRIFT'}}}}
+    foreach($field in @('labels','annotations')){if($null -ne $Expected.metadata.PSObject.Properties[$field]){foreach($p in $Expected.metadata.$field.PSObject.Properties){if($Actual.metadata.$field.($p.Name) -isnot [string] -or $Actual.metadata.$field.($p.Name) -cne $p.Value){throw 'PREREQUISITES_METADATA_DRIFT'}}}}
     foreach($field in @('spec','data','automountServiceAccountToken')){
         if($null -eq $Expected.PSObject.Properties[$field]){continue}
         $value=$Actual.$field
