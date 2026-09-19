@@ -11,6 +11,12 @@ function aws {throw 'Offline test forbids AWS'}
 function kubectl {throw 'Offline renderer forbids cluster calls'}
 function SaveIdentity {$identity|ConvertTo-Json -Depth 20 -Compress|Set-Content "$temp/identity.json" -NoNewline;$params.ExpectedIdentitySha256=Hash "$temp/identity.json"}
 try{
+    $module=Get-Content "$repo/infra/modules/staging-migration-irsa/main.tf" -Raw
+    $resources=@([regex]::Matches($module,'(?m)^resource "([^"]+)" "([^"]+)"')|ForEach-Object {$_.Groups[1].Value+'.'+$_.Groups[2].Value}|Sort-Object)
+    Assert ($resources.Count -eq 2 -and $resources -ccontains 'aws_iam_role.migration' -and $resources -ccontains 'aws_iam_role_policy.bootstrap') 'Migration module must own exactly its dedicated role and inline policy'
+    $foundation=Get-Content "$repo/infra/foundation/staging-migration-irsa.tf" -Raw
+    Assert ($foundation -match 'default\s*=\s*null' -and $foundation.Contains('var.staging_migration_irsa == null ? {} : { staging = var.staging_migration_irsa }')) 'Foundation migration activation remains opt-in and staging-only'
+    Assert ($module -notmatch 'module\.staging_app_irsa|aws_iam_role\.app|production') 'Migration policy must not reference APP or production identities'
     $roles=@{};$refs=@{}
     foreach($slot in @('master','migration','app','auth','notification')){
         $arn=if($slot -ceq 'master'){'arn:aws:secretsmanager:us-east-1:123456789012:secret:rds!db-test'}else{"arn:aws:secretsmanager:us-east-1:123456789012:secret:oficina/staging/$slot-AbCd12"}

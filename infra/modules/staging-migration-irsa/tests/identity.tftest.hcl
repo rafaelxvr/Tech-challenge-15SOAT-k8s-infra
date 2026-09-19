@@ -24,7 +24,7 @@ run "exact_trust_and_five_secret_reads" {
     error_message = "Trust must bind exactly one staging migration SA and audience."
   }
   assert {
-    condition     = length(jsondecode(local.policy).Statement) == 1 && jsondecode(local.policy).Statement[0].Action == ["secretsmanager:GetSecretValue"] && toset(jsondecode(local.policy).Statement[0].Resource) == toset([for ref in var.secret_refs : ref.arn])
+    condition     = length(jsondecode(local.policy).Statement) == 1 && jsondecode(local.policy).Statement[0].Action == ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"] && toset(jsondecode(local.policy).Statement[0].Resource) == toset([for ref in var.secret_refs : ref.arn])
     error_message = "Only five exact secret reads; no runtime queue, write, or KMS wildcard."
   }
 }

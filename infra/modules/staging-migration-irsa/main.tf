@@ -9,7 +9,7 @@ locals {
   })
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = concat([{ Sid = "ReadOnlyReviewedBootstrapSecrets", Effect = "Allow", Action = ["secretsmanager:GetSecretValue"], Resource = sort([for ref in var.secret_refs : ref.arn]), Condition = { StringEquals = { "aws:RequestedRegion" = "us-east-1" } } }],
+    Statement = concat([{ Sid = "ReadOnlyReviewedBootstrapSecrets", Effect = "Allow", Action = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"], Resource = sort([for ref in var.secret_refs : ref.arn]), Condition = { StringEquals = { "aws:RequestedRegion" = "us-east-1" } } }],
       [for slot, ref in var.secret_refs : { Sid = "DecryptBootstrap${title(slot)}", Effect = "Allow", Action = ["kms:Decrypt"], Resource = [ref.kms_key_arn], Condition = { StringEquals = {
         "kms:CallerAccount"               = var.account_id
         "kms:ViaService"                  = "secretsmanager.us-east-1.amazonaws.com"
