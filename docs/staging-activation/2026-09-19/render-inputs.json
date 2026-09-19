@@ -1,0 +1,86 @@
+{
+  "name": "oficina-phase3",
+  "aws_region": "us-east-1",
+  "account_id": "638612472889",
+  "vpc_id": "vpc-0a0fcb21e90c5b812",
+  "cluster_arn": "arn:aws:eks:us-east-1:638612472889:cluster/oficina-phase3",
+  "node_group_arns": [],
+  "kubernetes_repository": "oficina-k8s-infra",
+  "artifact_bucket_name": "oficina-phase3-artifacts-16225b7358",
+  "state_bucket_name": "oficina-phase3-state-16225b7358",
+  "private_subnet_ids": [
+    "subnet-06c013de9577c7f0b",
+    "subnet-0e49c88c97a118461"
+  ],
+  "security_group_ids": [
+    "sg-0513b65650d284878"
+  ],
+  "deployer_image_digest": "sha256:e40c301b50bafa5cb78acf8da7e1f5a5d8615c4b0228c375dc536256a4949daf",
+  "production_input_bindings": {},
+  "deployments": {
+    "k8s_staging": {
+      "terraform_variables_path": "/tmp/oficina/k8s_staging.tfvars.json",
+      "source_prefix": "releases/k8s/staging",
+      "terraform_state_key": "environments/staging.tfstate",
+      "environment": "staging",
+      "deployment_mode": "plan",
+      "repository": "oficina-k8s-infra"
+    },
+    "k8s_production": {
+      "terraform_variables_path": "/tmp/oficina/k8s_production.tfvars.json",
+      "source_prefix": "releases/k8s/production",
+      "terraform_state_key": "environments/production.tfstate",
+      "environment": "production",
+      "deployment_mode": "plan",
+      "repository": "oficina-k8s-infra"
+    },
+    "functions_production": {
+      "terraform_variables_path": "/tmp/oficina/functions_production.tfvars.json",
+      "source_prefix": "releases/functions/production",
+      "terraform_state_key": "functions/production.tfstate",
+      "environment": "production",
+      "deployment_mode": "plan",
+      "repository": "oficina-functions"
+    },
+    "app_staging": {
+      "terraform_variables_path": "/tmp/oficina/app_staging.tfvars.json",
+      "source_prefix": "releases/app/staging",
+      "terraform_state_key": "app/staging.tfstate",
+      "environment": "staging",
+      "deployment_mode": "apply",
+      "repository": "oficina-app"
+    },
+    "functions_staging": {
+      "terraform_variables_path": "/tmp/oficina/functions_staging.tfvars.json",
+      "source_prefix": "releases/functions/staging",
+      "terraform_state_key": "functions/staging.tfstate",
+      "environment": "staging",
+      "deployment_mode": "plan",
+      "repository": "oficina-functions"
+    },
+    "db_staging": {
+      "terraform_variables_path": "/tmp/oficina/db_staging.tfvars.json",
+      "source_prefix": "releases/database/staging",
+      "terraform_state_key": "database/staging.tfstate",
+      "environment": "staging",
+      "deployment_mode": "plan",
+      "repository": "oficina-db-infra"
+    },
+    "db_production": {
+      "terraform_variables_path": "/tmp/oficina/db_production.tfvars.json",
+      "source_prefix": "releases/database/production",
+      "terraform_state_key": "database/production.tfstate",
+      "environment": "production",
+      "deployment_mode": "plan",
+      "repository": "oficina-db-infra"
+    },
+    "app_production": {
+      "terraform_variables_path": "/tmp/oficina/app_production.tfvars.json",
+      "source_prefix": "releases/app/production",
+      "terraform_state_key": "app/production.tfstate",
+      "environment": "production",
+      "deployment_mode": "plan",
+      "repository": "oficina-app"
+    }
+  }
+}

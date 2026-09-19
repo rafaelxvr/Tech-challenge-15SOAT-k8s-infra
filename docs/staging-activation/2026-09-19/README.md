@@ -1,0 +1,19 @@
+# APP staging public-input bridge review
+
+Prepared from K8S `f0238321e472204ac5628bee904b3ecec88ee6f9` for APP `8e9cba5f9d4b2b2ba2cfdda63c2b7c491a7af271`. Status: **PREPARED, NOT EXECUTED**. No publication or runtime readiness is claimed.
+
+Read-only CodeBuild inventory on 2026-09-19 found the staging APP project using the canonical state paths but an old buildspec without the platform/workload/cloud-window bridge. The exact `update-project.json` changes only that project's `source.buildspec`, rendered through Terraform from the merged module. Source type/location, image, role, VPC, timeout, and project settings are preserved; no production project is present in the update payload. `source-before.json` is the observed nonsecret source configuration; `rollback-project.json` restores it.
+
+`render-inputs.json` contains public render inputs. Seven unused project entries satisfy the module's eight-project validation; these are offline render fixtures, **not a plan to change those projects**. Production bindings are empty and production fixture modes are plan. The APP staging apply mode was already present in the live executor and is retained for the separately authorized staging rehearsal.
+
+## Review and execution boundary
+
+1. Run `pwsh -NoProfile -File docs/staging-activation/2026-09-19/render.ps1` after credential-free `terraform init -backend=false -lockfile=readonly` in `infra/modules/deployment-executor`. Run `pwsh -NoProfile -File tests/staging-bridge-activation-review.ps1` and the existing `tests/executor-bootstrap-harness.ps1`. Check `hashes.json` before approval.
+2. Independent review must approve this exact payload before execution. Refresh `batch-get-projects` for only `oficina-phase3-oficina-app-staging-deploy`; compare its entire source to `source-before.json` and stop on drift. Confirm account `638612472889`, region `us-east-1`, no active staging build, current explicit cloud-window evidence, and selected digest existence.
+3. The separately approved command is `aws codebuild update-project --profile study-process --region us-east-1 --cli-input-json file://docs/staging-activation/2026-09-19/update-project.json`. This document does not run it. Re-read the project and compare source to the candidate, all other pre/post settings to the fresh snapshot. Keep the returned nonsecret metadata receipt and timestamp.
+4. Only after preflight and immutable input publication use the merged APP `scripts/start-deploy.ps1`. Required object bytes/versions/hashes: source archive, release manifest, public tfvars, platform JSON, workload JSON, cloud-window JSON. Bind the new source commit and actual ECR image digests; historical packages/windows cannot be reused as fresh evidence.
+5. If this source update needs rollback, use the same scoped command with `rollback-project.json`, then re-read and verify. Rollback restores executor configuration only; it does not reverse a started build or Kubernetes/database mutations. Do not launch while updating or rolling back. The old buildspec cannot execute the current APP adapter, so rollback deliberately returns to a blocked executor.
+
+Canonical APP values are `releases/app/staging`, `app/staging.tfstate`, `app/staging.tfstate.tflock`, and `/tmp/oficina/app_staging.tfvars.json`. The bridge downloads versioned inputs, verifies their hashes and manifest bindings, validates same-account/region cluster context, and supplies explicit local paths to `deploy.ps1`. Missing inputs fail closed.
+
+Remaining gates: independent review; fresh image/package hashes; exact S3 versions; renewed approved staging window; live IAM/RBAC/bootstrap role references; terminal CodeBuild success; runtime and promotion receipts. R4 remains NOT_RUN until actual accepted cloud evidence exists. A configuration update alone is not cloud acceptance.
