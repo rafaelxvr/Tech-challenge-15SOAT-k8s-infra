@@ -56,7 +56,7 @@ try {
         $sa=@($extras | Where-Object {$_.resources -contains 'serviceaccounts'})
         $get=@($sa | Where-Object {$_.verbs -contains 'get'})[0]
         $create=@($sa | Where-Object {$_.verbs -contains 'create'})[0]
-        Assert (($get.verbs -join ',') -ceq 'get' -and ($get.resources -join ',') -ceq 'serviceaccounts' -and ($get.resourceNames -join ',') -ceq 'oficina-app' -and ($get.apiGroups -join ',') -ceq '') 'SA read must target only oficina-app.'
+        Assert (($get.verbs -join ',') -ceq 'get' -and ($get.resources -join ',') -ceq 'serviceaccounts' -and ($get.resourceNames -join ',') -ceq 'oficina-app,oficina-migration-staging' -and ($get.apiGroups -join ',') -ceq '') 'SA read must target exactly the APP and migration accounts.'
         Assert (($create.verbs -join ',') -ceq 'create' -and ($create.resources -join ',') -ceq 'serviceaccounts' -and ($create.apiGroups -join ',') -ceq '' -and $null -eq $create.PSObject.Properties['resourceNames']) 'SA create must not add mutation or read permissions.'
         $jobs=@($extras | Where-Object {$_.resources -contains 'jobs'})[0]
         Assert (($jobs.verbs -join ',') -ceq 'get,list,watch,create' -and ($jobs.resources -join ',') -ceq 'jobs' -and ($jobs.apiGroups -join ',') -ceq 'batch') 'Job verbs must match get/wait/create only.'

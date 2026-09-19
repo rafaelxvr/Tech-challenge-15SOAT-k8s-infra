@@ -45,6 +45,7 @@ jobs:
           ./tests/functions-contract.ps1
           ./tests/platform-manifests-tests.ps1
           ./tests/staging-app-workload-tests.ps1
+          ./tests/staging-migration-tests.ps1
           ./tests/deployer-dependencies-tests.ps1
           ./tests/runtime-public-configmap-tests.ps1
           ./tests/application-rollout-tests.ps1
@@ -58,6 +59,9 @@ jobs:
           terraform -chdir=infra/modules/staging-app-irsa init -backend=false -input=false -lockfile=readonly
           terraform -chdir=infra/modules/staging-app-irsa validate
           terraform -chdir=infra/modules/staging-app-irsa test
+          terraform -chdir=infra/modules/staging-migration-irsa init -backend=false -input=false -lockfile=readonly
+          terraform -chdir=infra/modules/staging-migration-irsa validate
+          terraform -chdir=infra/modules/staging-migration-irsa test
           terraform -chdir=infra/foundation init -backend=false -input=false
           terraform -chdir=infra/foundation validate
           terraform -chdir=infra/foundation test -filter=tests/outputs.tftest.hcl
