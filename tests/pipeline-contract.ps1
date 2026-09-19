@@ -4,6 +4,7 @@ param()
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 & (Join-Path $PSScriptRoot 'deployment-lock-race-contract.ps1')
+& (Join-Path $PSScriptRoot 'production-input-transport-tests.ps1')
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $temp = Join-Path ([System.IO.Path]::GetTempPath()) ("oficina-pipeline-contract-" + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $temp -Force | Out-Null
