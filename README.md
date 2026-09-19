@@ -38,3 +38,5 @@ pwsh ./tests/release-readiness-contract.ps1
 CI is [`.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml): pull requests and pushes to `develop`/`main` run `local-contracts`; a push to either protected branch can enter its configured staging/production handoff. The protected release handoff is documented in [deployment sequence](docs/deployment-sequence.md). Apply/deploy needs reviewed environment inputs and an authorized R4 window.
 
 Staging migration identity is optional and disabled in foundation by default; see [the reviewed identity and network contract](docs/staging-migration-identity.md). Rendering and mocked tests do not prove live IRSA or bootstrap success.
+
+The [staging prerequisite bundle contract](docs/staging-prerequisites-contract.md) keeps platform creation on the private foundation executor and APP validation within its existing RBAC. Payload preparation is review-only and disabled by default.

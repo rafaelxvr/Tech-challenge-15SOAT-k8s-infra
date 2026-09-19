@@ -61,3 +61,13 @@ run "create_only_declared_build_log_group" {
     error_message = "The project must declare the same log group authorized by its role."
   }
 }
+
+run "prerequisites_shared_lock_is_one_object" {
+  command = plan
+  assert {
+    condition = one([for statement in jsondecode(local.policy).Statement : statement if statement.Sid == "SharedStagingPrerequisitesLock"]) == {
+      Sid = "SharedStagingPrerequisitesLock", Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"], Resource = "arn:aws:s3:::oficina-state-test/deployment-locks/shared-foundation.json"
+    }
+    error_message = "Prerequisite mode may touch only the existing shared deployment lock; no APP RBAC or production resources."
+  }
+}
