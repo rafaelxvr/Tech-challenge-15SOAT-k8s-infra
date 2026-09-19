@@ -52,6 +52,19 @@ variable "namespace" {
     error_message = "namespace must match the isolated environment name."
   }
 }
+variable "app_deployer_principal_arn" {
+  type        = string
+  default     = null
+  nullable    = true
+  description = "Optional staging APP executor identity. Authentication only; the matching IAM-ARN User is authorized by the reviewed namespaced RoleBinding."
+  validation {
+    condition = var.app_deployer_principal_arn == null || (
+      var.environment == "staging" &&
+      var.app_deployer_principal_arn == "arn:aws:iam::${var.account_id}:role/${var.name}-oficina-app-staging-deploy-role"
+    )
+    error_message = "APP access is limited to the exact same-account staging APP executor role; production and other principals are forbidden."
+  }
+}
 variable "authorizer_handoff" {
   type = object({
     api_id        = string

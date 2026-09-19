@@ -1,0 +1,4 @@
+{
+  "clusterName": "oficina-phase3",
+  "principalArn": "arn:aws:iam::638612472889:role/oficina-phase3-oficina-app-staging-deploy-role"
+}
