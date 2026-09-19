@@ -10,4 +10,7 @@ labels:
   - pairs:
       app.kubernetes.io/part-of: oficina
       app.kubernetes.io/managed-by: oficina-k8s-infra
-    includeSelectors: true
+    # Cross-namespace peers (CoreDNS/metrics-server) are not oficina-owned.
+    # Keep APP selectors explicit instead of injecting labels into every peer.
+    includeSelectors: false
+    includeTemplates: true

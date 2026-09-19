@@ -8,7 +8,7 @@ param(
     [Parameter(Mandatory)] [string]$DeployerPrincipalArn,
     [Parameter(Mandatory)] [string]$PlatformBindingPrincipalArn,
     [Parameter(Mandatory)] [string]$DbHost,
-    [Parameter(Mandatory)] [string]$DbCidr,
+    [Parameter(Mandatory)] [ValidateNotNullOrEmpty()] [Alias('DatabaseCidrs')] [string[]]$DbCidr,
     [Parameter(Mandatory)] [string]$AlbSubnetCidrOne,
     [Parameter(Mandatory)] [string]$AlbSubnetCidrTwo,
     [Parameter(Mandatory)] [string]$AppSecretArn,
@@ -32,8 +32,11 @@ foreach ($entry in @(@{Arn=$AppSecretArn; Name='app'}, @{Arn=$AuthorizerTrustSec
 }
 if ($DbHost -cnotmatch '\A[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\z') { throw 'Database host must be a DNS hostname without a port, URL or whitespace.' }
 if ($NewRelicAccountId -notmatch '\A[1-9][0-9]{0,15}\z') { throw 'NewRelicAccountId must be a nonsecret positive account identifier.' }
-foreach ($cidr in @($DbCidr, $AlbSubnetCidrOne, $AlbSubnetCidrTwo)) {
+if (@($DbCidr | Select-Object -Unique).Count -ne $DbCidr.Count) { throw 'Database CIDRs must be unique explicit subnet inputs.' }
+foreach ($cidr in @($DbCidr) + @($AlbSubnetCidrOne, $AlbSubnetCidrTwo)) {
     if ($cidr -notmatch '^([0-9]{1,3}\.){3}[0-9]{1,3}/([0-9]|[12][0-9]|3[0-2])$') { throw 'Database and ALB subnet inputs must be CIDR blocks.' }
+    $address = $null
+    if (-not [Net.IPAddress]::TryParse($cidr.Split('/')[0], [ref]$address) -or $address.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork) { throw 'Database and ALB subnet inputs must be valid IPv4 CIDR blocks.' }
 }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -46,6 +49,15 @@ if ($LASTEXITCODE -ne 0) { throw 'kubectl kustomize failed.' }
 $rendered = @($rendered | ForEach-Object {
     $_ -replace '^(\s*value:\s*)\$\{NEW_RELIC_ACCOUNT_ID\}\s*$', '$1"${NEW_RELIC_ACCOUNT_ID}"'
 })
+# Expand only the database peer placeholder, keeping every supplied subnet
+# separate instead of widening to a supernet. Single-CIDR callers stay valid.
+$databasePeer = '(?m)^(?<indent> *)- ipBlock:\r?\n *cidr: \$\{DB_CIDR\} *\r?$'
+$renderedText = $rendered -join "`n"
+if ([regex]::Matches($renderedText, $databasePeer).Count -ne 1) { throw 'Expected exactly one database peer template.' }
+$rendered = [regex]::Replace($renderedText, $databasePeer, [Text.RegularExpressions.MatchEvaluator]{ param($match)
+    $indent = $match.Groups['indent'].Value
+    (@($DbCidr | ForEach-Object { "${indent}- ipBlock:`n${indent}    cidr: $_" }) -join "`n")
+})
 
 $tokens = [ordered]@{
     '${APP_IMAGE}'               = $Image
@@ -53,7 +65,6 @@ $tokens = [ordered]@{
     '${DEPLOYER_PRINCIPAL_ARN}'  = $DeployerPrincipalArn
     '${PLATFORM_BINDING_PRINCIPAL_ARN}' = $PlatformBindingPrincipalArn
     '${DB_HOST}'                 = $DbHost
-    '${DB_CIDR}'                 = $DbCidr
     '${ALB_SUBNET_CIDR_ONE}'     = $AlbSubnetCidrOne
     '${ALB_SUBNET_CIDR_TWO}'     = $AlbSubnetCidrTwo
     '${ENVIRONMENT}'             = $Environment

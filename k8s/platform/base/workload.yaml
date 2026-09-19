@@ -12,6 +12,8 @@ spec:
   selector:
     matchLabels:
       app.kubernetes.io/name: oficina-app
+      app.kubernetes.io/part-of: oficina
+      app.kubernetes.io/managed-by: oficina-k8s-infra
   template:
     metadata:
       labels:
@@ -188,6 +190,8 @@ spec:
   type: ClusterIP
   selector:
     app.kubernetes.io/name: oficina-app
+    app.kubernetes.io/part-of: oficina
+    app.kubernetes.io/managed-by: oficina-k8s-infra
   ports:
     - name: http
       port: 8080
