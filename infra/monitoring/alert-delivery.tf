@@ -18,9 +18,9 @@ variable "alert_email_recipient" {
   validation {
     condition = (!var.alert_delivery_enabled && var.alert_email_recipient == "") || (
       length(var.alert_email_recipient) <= 254 &&
-      can(regex("^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$", var.alert_email_recipient))
+      can(regex("^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(\\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$", var.alert_email_recipient))
     )
-    error_message = "Enabling delivery requires one nonempty reviewed email address, without whitespace, display name or recipient lists."
+    error_message = "Enabling delivery requires one nonempty reviewed email address, without whitespace, display name, recipient lists or empty dot-separated local-part atoms."
   }
 }
 

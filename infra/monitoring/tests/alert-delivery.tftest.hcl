@@ -120,3 +120,42 @@ run "production_enablement_rejected" {
   }
   expect_failures = [var.alert_delivery_enabled]
 }
+
+run "leading_local_dot_rejected" {
+  command = plan
+  variables {
+    alert_delivery_enabled = true
+    alert_email_recipient  = ".operations@example.invalid"
+  }
+  expect_failures = [var.alert_email_recipient]
+}
+
+run "trailing_local_dot_rejected" {
+  command = plan
+  variables {
+    alert_delivery_enabled = true
+    alert_email_recipient  = "operations.@example.invalid"
+  }
+  expect_failures = [var.alert_email_recipient]
+}
+
+run "consecutive_local_dots_rejected" {
+  command = plan
+  variables {
+    alert_delivery_enabled = true
+    alert_email_recipient  = "operations..alerts@example.invalid"
+  }
+  expect_failures = [var.alert_email_recipient]
+}
+
+run "single_separating_local_dot_accepted" {
+  command = plan
+  variables {
+    alert_delivery_enabled = true
+    alert_email_recipient  = "operations.alerts@example.invalid"
+  }
+  assert {
+    condition     = one(newrelic_notification_destination.operations[0].property).value == var.alert_email_recipient
+    error_message = "Single dots between nonempty local-part atoms remain valid."
+  }
+}
