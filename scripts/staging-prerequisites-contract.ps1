@@ -55,6 +55,18 @@ function Assert-PrerequisiteReadback($Actual,$Expected){
             for($i=0;$i -lt $value.ports.Count;$i++){if($i -ge $Expected.spec.ports.Count){throw 'PREREQUISITES_SERVICE_PORT_DRIFT'};if($null -eq $Expected.spec.ports[$i].PSObject.Properties['protocol'] -and $null -ne $value.ports[$i].PSObject.Properties['protocol']){if($value.ports[$i].protocol -cne 'TCP'){throw 'PREREQUISITES_SERVICE_PROTOCOL_DRIFT'};$value.ports[$i].PSObject.Properties.Remove('protocol')}}
             foreach($default in @('clusterIP','clusterIPs','ipFamilies','ipFamilyPolicy','internalTrafficPolicy','sessionAffinity')){if($null -eq $Expected.spec.PSObject.Properties[$default]){$value.PSObject.Properties.Remove($default)}}
         }
+        if($field -ceq 'spec' -and $Expected.kind -ceq 'TargetGroupBinding'){
+            # Compare a copy: retain the complete CREATE/GET response for UID/RV evidence.
+            $value=$value|ConvertTo-Json -Depth 30|ConvertFrom-Json
+            foreach($default in @('ipAddressType','vpcID')){
+                if($null -ne $Expected.spec.PSObject.Properties[$default] -or $null -eq $value.PSObject.Properties[$default]){continue}
+                $observed=$value.$default
+                if($observed -isnot [string] -or
+                   ($default -ceq 'ipAddressType' -and $observed -cne 'ipv4') -or
+                   ($default -ceq 'vpcID' -and $observed -cnotmatch '\Avpc-(?:[a-f0-9]{8}|[a-f0-9]{17})\z')){throw 'PREREQUISITES_TARGET_BINDING_DEFAULT_DRIFT'}
+                $value.PSObject.Properties.Remove($default)
+            }
+        }
         if((Get-PrerequisiteObjectHash $value) -cne (Get-PrerequisiteObjectHash $Expected.$field)){throw 'PREREQUISITES_SPEC_DRIFT'}
     }
 }
