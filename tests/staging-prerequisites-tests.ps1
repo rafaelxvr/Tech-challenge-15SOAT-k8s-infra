@@ -23,6 +23,7 @@ function Invoke-MockedKube {
    $objectPath=$a[[array]::IndexOf($a,'-f')+1]
    $object=Get-Content $objectPath -Raw|ConvertFrom-Json;$object.metadata|Add-Member uid ([guid]::NewGuid().ToString());$object.metadata|Add-Member resourceVersion '100'
    if($object.kind -ceq 'Service'){$object.spec|Add-Member clusterIP '10.100.0.1';$object.spec|Add-Member sessionAffinity 'None';$object.spec|Add-Member internalTrafficPolicy 'Cluster';$object.spec.ports[0]|Add-Member protocol 'TCP'}
+   if($object.kind -ceq 'TargetGroupBinding'){$object.spec|Add-Member ipAddressType 'ipv4';$object.spec|Add-Member vpcID 'vpc-0123456789abcdef0'}
    $f.objects[$object.kind+'/'+$object.metadata.name]=$object
    $createdJson=$object|ConvertTo-Json -Depth 70 -Compress
    if($f.objects.Count -eq 1){
@@ -54,6 +55,33 @@ try{
  $render=@{PlatformManifestFile=$platform;ExpectedPlatformSha256=(Hash $platform);MigrationDirectory=$temp;RuntimePublicConfigMapFile="$temp/public.json";ExpectedPublicSha256=(Hash "$temp/public.json");TerraformOutputsFile="$temp/outputs.json";ExpectedTerraformOutputsSha256=(Hash "$temp/outputs.json");TerraformOutputsBucket='fixture-artifact-bucket';TerraformOutputsKey="releases/k8s/staging/outputs/$kcommit.json";TerraformOutputsVersionId='reviewed-version';AppSourceCommit=$commit;K8sSourceCommit=$kcommit;OutputDirectory="$temp/rendered"}
  $path=& "$repo/scripts/render-staging-prerequisites.ps1" @render;$sha=Hash $path;$json=[IO.File]::ReadAllText($path);$bundle=Read-StagingPrerequisites $json $sha $commit
  Assert ($bundle.objects.Count -eq 8 -and $bundle.targetGroupArn -ceq $arn) 'Eight source objects must bind exact Terraform ARN'
+ # The controller adds these fields to CREATE responses and later GETs.
+ $expectedBinding=@($bundle.objects|Where-Object kind -CEQ 'TargetGroupBinding')[0]
+ $liveBinding=$expectedBinding|ConvertTo-Json -Depth 70|ConvertFrom-Json
+ $liveBinding.metadata|Add-Member uid 'fixture-binding-uid';$liveBinding.metadata|Add-Member resourceVersion '100'
+ $liveBinding.spec|Add-Member ipAddressType 'ipv4';$liveBinding.spec|Add-Member vpcID 'vpc-0123456789abcdef0'
+ $liveBefore=Get-PrerequisiteObjectHash $liveBinding
+ Assert-PrerequisiteReadback $liveBinding $expectedBinding;$script:checks++
+ Assert ((Get-PrerequisiteObjectHash $liveBinding) -ceq $liveBefore) 'Normalization must preserve the original response for ownership evidence'
+ foreach($mutation in @(
+   {param($o)$o.spec.ipAddressType='ipv6'},
+   {param($o)$o.spec.ipAddressType=@('ipv4')},
+   {param($o)$o.spec.vpcID=$null},
+   {param($o)$o.spec.vpcID=@('vpc-0123456789abcdef0')},
+   {param($o)$o.spec.vpcID='not-a-vpc'},
+   {param($o)$o.spec.targetGroupARN+='changed'},
+   {param($o)$o.spec.targetType='instance'},
+   {param($o)$o.spec.serviceRef.name='other'},
+   {param($o)$o.spec.serviceRef.port=80},
+   {param($o)$o.spec|Add-Member unreviewedField 'value'}
+ )){$changed=$liveBinding|ConvertTo-Json -Depth 70|ConvertFrom-Json;& $mutation $changed;Reject {Assert-PrerequisiteReadback $changed $expectedBinding}}
+ $explicitBinding=$liveBinding|ConvertTo-Json -Depth 70|ConvertFrom-Json
+ Assert-PrerequisiteReadback $liveBinding $explicitBinding;$script:checks++
+ foreach($field in @('vpcID','ipAddressType')){
+   $changed=$liveBinding|ConvertTo-Json -Depth 70|ConvertFrom-Json
+   $changed.spec.$field=if($field -ceq 'vpcID'){'vpc-fedcba98765432100'}else{'ipv6'}
+   Reject {Assert-PrerequisiteReadback $changed $explicitBinding}
+ }
  $second=& "$repo/scripts/render-staging-prerequisites.ps1" @render;Assert ((Hash $second) -ceq $sha) 'Rendering deterministic'
  foreach($field in @('TerraformOutputsVersionId','TerraformOutputsKey','ExpectedTerraformOutputsSha256')){$bad=$render.Clone();$bad[$field]='';Reject {& "$repo/scripts/render-staging-prerequisites.ps1" @bad}}
  New-Item -ItemType Directory "$temp/scripts"|Out-Null
