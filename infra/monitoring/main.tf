@@ -124,7 +124,11 @@ resource "newrelic_nrql_alert_condition" "threshold" {
   close_violations_on_expiration = each.value.expiration != null ? true : null
   aggregation_window             = 60
   aggregation_method             = "event_flow"
-  violation_time_limit_seconds   = 3600
+  # event_flow batches by event timestamp, so it needs an explicit delay to wait for
+  # late-arriving events before it closes a window. New Relic rejects the condition
+  # without one. Two minutes covers the agent and Lambda extension harvest cycles.
+  aggregation_delay            = 120
+  violation_time_limit_seconds = 3600
 }
 
 resource "newrelic_synthetics_monitor" "gateway_health" {
