@@ -33,8 +33,13 @@ run "monitoring_is_pinned_bounded_and_has_four_dashboards" {
     error_message = "The same Helm release must render the existing environment Secret sync before collector manifests."
   }
   assert {
-    condition     = alltrue([for name, alert in newrelic_nrql_alert_condition.threshold : (name == "gateway_health_failure" ? strcontains(alert.nrql[0].query, "monitorName = 'Oficina staging gateway health'") : strcontains(alert.nrql[0].query, "environment = 'staging'")) && !strcontains(alert.nrql[0].query, "{{environment}}")]) && strcontains(newrelic_one_dashboard.approved["platform"].page[0].widget_line[0].nrql_query[0].query, "{{environment}}")
+    condition     = alltrue([for name, alert in local.alert_conditions : (name == "gateway_health_failure" ? strcontains(alert.query, "monitorName = 'Oficina staging gateway health'") : contains(["api_latency", "api_error_ratio"], name) ? strcontains(alert.query, "appName = 'oficina-api-staging'") : strcontains(alert.query, "environment = 'staging'")) && !strcontains(alert.query, "{{environment}}")]) && strcontains(newrelic_one_dashboard.approved["platform"].page[0].widget_line[0].nrql_query[0].query, "{{environment}}")
     error_message = "Applied alert NRQL must bind the concrete Terraform environment or its exact synthetic monitor; dashboards retain their finite interactive environment filter."
+  }
+  assert {
+    condition = alltrue([for widget in flatten(values(local.dashboard_widgets)) :
+    !strcontains(widget.query, "'{{environment}}'")])
+    error_message = "The environment variable substitutes with replacement_strategy \"string\", which adds its own quotes. Quoting it in the query renders environment = ''staging'' and empties every widget."
   }
 }
 run "required_observability_categories_are_represented" {
@@ -102,13 +107,20 @@ run "required_observability_categories_are_represented" {
     ]) && alltrue([for environment, monitor in newrelic_synthetics_monitor.gateway_health : monitor.name == "Oficina ${environment} gateway health"])
     error_message = "The planned conditions must retain the tested queries/thresholds and exact synthetic monitor identities."
   }
+  # Kept apart from the secret check below: an assertion that references the sensitive
+  # provider key cannot render its own failure diff, so a scoping regression would crash
+  # the test run instead of reporting which widget broke.
   assert {
-    condition = (alltrue([for widget in flatten(values(local.dashboard_widgets)) :
-      strcontains(widget.query, "environment = '{{environment}}'") &&
+    condition = alltrue([for widget in flatten(values(local.dashboard_widgets)) :
+      (strcontains(widget.query, "environment = {{environment}}") || strcontains(widget.query, "appName = 'oficina-api-${var.environment}'")) &&
       !can(regex("(?i)select[[:space:]]+\\*|password|authorization|access_token|license.?key|api.?key", widget.query))
-      ]) && !strcontains(jsonencode(local.dashboard_widgets), nonsensitive(var.newrelic_api_key)) &&
+    ])
+    error_message = "Every dashboard query must scope to the environment variable or to the environment application entity, and must not select raw payload or credential fields."
+  }
+  assert {
+    condition = (!strcontains(jsonencode(local.dashboard_widgets), nonsensitive(var.newrelic_api_key)) &&
     !strcontains(helm_release.nri_bundle.values[0], nonsensitive(var.newrelic_api_key)))
-    error_message = "Dashboard queries must stay environment-scoped and avoid raw payload/credential fields or provider secret values."
+    error_message = "Rendered dashboards and collector values must never contain the provider key."
   }
 }
 
@@ -122,7 +134,8 @@ run "production_conditions_cannot_match_staging_signals" {
   }
   assert {
     condition = try(
-      strcontains(local.alert_conditions["api_latency"].query, "environment = 'production'") &&
+      strcontains(local.alert_conditions["api_latency"].query, "appName = 'oficina-api-production'") &&
+      strcontains(local.alert_conditions["outbox_age"].query, "environment = 'production'") &&
       local.alert_conditions["gateway_health_failure"].query == "FROM SyntheticCheck SELECT filter(count(*), WHERE result = 'FAILED') WHERE monitorName = 'Oficina production gateway health'",
       false
     )
