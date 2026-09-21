@@ -2,6 +2,7 @@
 param(
     [Parameter(Mandatory)] [ValidateSet('staging', 'production')] [string]$Environment,
     [Parameter(Mandatory)] [string]$CustomerPublicKeysFile,
+    [Parameter(Mandatory)] [string]$CustomerKeyId,
     [Parameter(Mandatory)] [string]$StaffKeyId,
     [Parameter(Mandatory)] [string]$NotificationQueueUrl,
     [Parameter(Mandatory)] [string]$HistoryZone,
@@ -47,7 +48,7 @@ function Read-CustomerPublicKeys {
 
     $currentKey = $null
     $pemLines = @()
-    $keyCount = 0
+    $keyIds = @()
     for ($index = $headers.Count; $index -lt $lines.Count; $index++) {
         $line = $lines[$index]
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
@@ -55,7 +56,8 @@ function Read-CustomerPublicKeys {
             if ($null -ne $currentKey) { Assert-PublicKeyBlock -PemLines $pemLines }
             $currentKey = $Matches.key
             $pemLines = @()
-            $keyCount++
+            if ($keyIds -ccontains $currentKey) { throw 'Customer public keys declare the same kid twice.' }
+            $keyIds += $currentKey
             continue
         }
         if ($line -match '^ {10}(?<pem>.*)$' -and $null -ne $currentKey) {
@@ -65,8 +67,17 @@ function Read-CustomerPublicKeys {
         throw 'Customer public keys contain a field outside security.jwt.customer.public-keys.'
     }
     if ($null -ne $currentKey) { Assert-PublicKeyBlock -PemLines $pemLines }
-    if ($keyCount -eq 0) { throw 'Customer public keys must contain at least one trusted key.' }
-    return $content.TrimEnd("`r", "`n")
+    if ($keyIds.Count -eq 0) { throw 'Customer public keys must contain at least one trusted key.' }
+    return [pscustomobject]@{ Content = $content.TrimEnd("`r", "`n"); KeyIds = $keyIds }
+}
+
+function Assert-SignerKidPublished {
+    param([Parameter(Mandatory)][string[]]$KeyIds, [Parameter(Mandatory)][string]$SignerKeyId)
+    # APP resolves the customer public key by the kid in the token header, so the
+    # signer kid configured for FUN must be one of the kids published to APP.
+    if (-not ($KeyIds -ccontains $SignerKeyId)) {
+        throw "CustomerKeyId '$SignerKeyId' is not published by the customer public keys file; APP would reject every customer token."
+    }
 }
 
 function Read-RdsCa {
@@ -93,12 +104,15 @@ function Assert-SafeScalar {
     if ([string]::IsNullOrWhiteSpace($Value) -or $Value -match '[\r\n]' -or $Value -match '[{}\[\]]') { throw "$Label contains unsafe YAML characters." }
 }
 
+if ($CustomerKeyId -notmatch '^[A-Za-z0-9_-]{1,64}$') { throw 'CustomerKeyId must match [A-Za-z0-9_-]{1,64}.' }
 if ($StaffKeyId -notmatch '^[A-Za-z0-9_-]{1,64}$') { throw 'StaffKeyId must match [A-Za-z0-9_-]{1,64}.' }
 if ($NotificationQueueUrl -notmatch "^https://sqs\.us-east-1\.amazonaws\.com/[0-9]{12}/oficina-phase3-$Environment-notifications\.fifo$") { throw 'NotificationQueueUrl must be the exact reviewed environment FIFO queue URL.' }
 Assert-SafeScalar -Value $HistoryZone -Label 'HistoryZone'
 if ($HistoryZone -notmatch '^[A-Za-z0-9_./+:-]+$') { throw 'HistoryZone must be a reviewed timezone or compatibility zone.' }
 
-$customerPublicKeys = Read-CustomerPublicKeys
+$customerTrust = Read-CustomerPublicKeys
+Assert-SignerKidPublished -KeyIds $customerTrust.KeyIds -SignerKeyId $CustomerKeyId
+$customerPublicKeys = $customerTrust.Content
 $rdsCa = Read-RdsCa
 # JSON quoted scalars are valid YAML and preserve CRLF/LF and trailing newlines.
 # Kubernetes mounts these exact UTF-8 bytes, matching the reviewed bootstrap hash.
