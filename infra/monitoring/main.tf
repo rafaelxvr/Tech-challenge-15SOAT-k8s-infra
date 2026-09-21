@@ -13,24 +13,24 @@ locals {
   transaction_scope = "appName = 'oficina-api-${var.environment}'"
   dashboard_widgets = {
     business = [
-      { title = "Daily diagnosis mean", query = "FROM WorkshopReportSnapshot SELECT latest(diagnosis_total_seconds) / latest(diagnosis_samples) / 60 WHERE ${local.dashboard_nrql} AND window_kind = 'day' AND diagnosis_samples > 0 FACET business_date SINCE 3 minutes ago" },
-      { title = "Rolling execution mean", query = "FROM WorkshopReportSnapshot SELECT latest(execution_total_seconds) / latest(execution_samples) / 60 WHERE ${local.dashboard_nrql} AND window_kind = 'rolling_7_day' AND execution_samples > 0 SINCE 3 minutes ago" },
-      { title = "Daily finalization mean", query = "FROM WorkshopReportSnapshot SELECT latest(finalization_total_seconds) / latest(finalization_samples) / 60 WHERE ${local.dashboard_nrql} AND window_kind = 'day' AND finalization_samples > 0 FACET business_date SINCE 3 minutes ago" }
+      { title = "Daily diagnosis mean", query = "FROM WorkshopReportSnapshot SELECT latest(diagnosis_total_seconds) / latest(diagnosis_samples) / 60 WHERE ${local.dashboard_nrql} AND window_kind = 'day' AND diagnosis_samples > 0 FACET business_date SINCE 30 minutes ago" },
+      { title = "Rolling execution mean", query = "FROM WorkshopReportSnapshot SELECT latest(execution_total_seconds) / latest(execution_samples) / 60 WHERE ${local.dashboard_nrql} AND window_kind = 'rolling_7_day' AND execution_samples > 0 SINCE 30 minutes ago" },
+      { title = "Daily finalization mean", query = "FROM WorkshopReportSnapshot SELECT latest(finalization_total_seconds) / latest(finalization_samples) / 60 WHERE ${local.dashboard_nrql} AND window_kind = 'day' AND finalization_samples > 0 FACET business_date SINCE 30 minutes ago" }
     ]
     orders = [
-      { title = "Order volume", query = "FROM WorkshopReportSnapshot SELECT latest(created_count), latest(eligible_count), latest(excluded_count) WHERE ${local.dashboard_nrql} AND window_kind = 'day' FACET business_date SINCE 3 minutes ago" },
-      { title = "Status age", query = "FROM WorkshopStatusSnapshot SELECT latest(current_count), latest(max_age_seconds), latest(unknown_age_count) WHERE ${local.dashboard_nrql} FACET status SINCE 3 minutes ago" }
+      { title = "Order volume", query = "FROM WorkshopReportSnapshot SELECT latest(created_count), latest(eligible_count), latest(excluded_count) WHERE ${local.dashboard_nrql} AND window_kind = 'day' FACET business_date SINCE 30 minutes ago" },
+      { title = "Status age", query = "FROM WorkshopStatusSnapshot SELECT latest(current_count), latest(max_age_seconds), latest(unknown_age_count) WHERE ${local.dashboard_nrql} FACET status SINCE 30 minutes ago" }
     ]
     delivery = [
-      { title = "Outbox blocked", query = "FROM WorkshopOutboxHealth SELECT latest(blocked_count), latest(oldest_pending_seconds) WHERE ${local.dashboard_nrql} SINCE 3 minutes ago" },
-      { title = "Function delivery failures", query = "FROM Log SELECT count(*) WHERE ${local.dashboard_nrql} AND event_name = 'notification_failed' SINCE 5 minutes ago" },
-      { title = "Integration errors", query = "FROM Log SELECT count(*) WHERE ${local.dashboard_nrql} AND event_name = 'integration_failed' SINCE 5 minutes ago" }
+      { title = "Outbox blocked", query = "FROM WorkshopOutboxHealth SELECT latest(blocked_count), latest(oldest_pending_seconds) WHERE ${local.dashboard_nrql} SINCE 30 minutes ago" },
+      { title = "Function delivery failures", query = "FROM Log SELECT count(*) WHERE ${local.dashboard_nrql} AND event_name = 'notification_failed' SINCE 30 minutes ago" },
+      { title = "Integration errors", query = "FROM Log SELECT count(*) WHERE ${local.dashboard_nrql} AND event_name = 'integration_failed' SINCE 30 minutes ago" }
     ]
     platform = [
-      { title = "Kubernetes capacity", query = "FROM K8sContainerSample SELECT average(cpuUsedCores), average(memoryWorkingSetBytes) WHERE ${local.dashboard_nrql} FACET clusterName SINCE 5 minutes ago" },
-      { title = "Telemetry heartbeat", query = "FROM WorkshopTelemetryHeartbeat SELECT latest(drop_count) WHERE ${local.dashboard_nrql} SINCE 3 minutes ago" },
-      { title = "API p95 latency seconds", query = "FROM Transaction SELECT percentile(duration, 95) WHERE ${local.transaction_scope} SINCE 5 minutes ago" },
-      { title = "Correlated request logs", query = "FROM Log SELECT count(*) WHERE ${local.dashboard_nrql} AND correlation_id IS NOT NULL AND api_gateway_request_id IS NOT NULL AND traceparent IS NOT NULL AND event_name IS NOT NULL AND service IS NOT NULL AND version IS NOT NULL FACET service, event_name SINCE 5 minutes ago" }
+      { title = "Kubernetes capacity", query = "FROM K8sContainerSample SELECT average(cpuUsedCores), average(memoryWorkingSetBytes) WHERE ${local.dashboard_nrql} FACET clusterName SINCE 30 minutes ago" },
+      { title = "Telemetry heartbeat", query = "FROM WorkshopTelemetryHeartbeat SELECT latest(drop_count) WHERE ${local.dashboard_nrql} SINCE 30 minutes ago" },
+      { title = "API p95 latency seconds", query = "FROM Transaction SELECT percentile(duration, 95) WHERE ${local.transaction_scope} SINCE 30 minutes ago" },
+      { title = "Correlated request logs", query = "FROM Log SELECT count(*) WHERE ${local.dashboard_nrql} AND correlation_id IS NOT NULL AND api_gateway_request_id IS NOT NULL AND traceparent IS NOT NULL AND event_name IS NOT NULL AND service IS NOT NULL AND version IS NOT NULL FACET service, event_name SINCE 30 minutes ago" }
     ]
   }
   alert_conditions = {
