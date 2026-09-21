@@ -4,3 +4,6 @@
 *.tfplan
 *.auto.tfvars
 crash.log
+
+# Planning scratch: local only, never published
+.superpowers/

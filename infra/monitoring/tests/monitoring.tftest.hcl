@@ -41,6 +41,12 @@ run "monitoring_is_pinned_bounded_and_has_four_dashboards" {
     !strcontains(widget.query, "'{{environment}}'")])
     error_message = "The environment variable substitutes with replacement_strategy \"string\", which adds its own quotes. Quoting it in the query renders environment = ''staging'' and empties every widget."
   }
+  assert {
+    condition = alltrue([for widget in flatten(values(local.dashboard_widgets)) :
+      tonumber(regex("SINCE ([0-9]+) minutes? ago", widget.query)[0]) >= 30
+    ])
+    error_message = "Snapshot events publish once every 60 seconds, so a widget window shorter than 30 minutes holds too few samples and renders empty on any brief interruption."
+  }
 }
 run "required_observability_categories_are_represented" {
   command = plan
