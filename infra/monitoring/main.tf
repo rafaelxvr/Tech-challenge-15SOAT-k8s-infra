@@ -8,6 +8,9 @@ locals {
   # environment = ''staging'', which is invalid NRQL and leaves every widget empty.
   dashboard_nrql = "environment = {{environment}}"
   alert_nrql     = "environment = '${var.environment}'"
+  # APM Transaction events carry appName, not the collector's environment attribute.
+  # Filtering them by environment matches nothing, so they bind the application entity.
+  transaction_scope = "appName = 'oficina-api-${var.environment}'"
   dashboard_widgets = {
     business = [
       { title = "Daily diagnosis mean", query = "FROM WorkshopReportSnapshot SELECT latest(diagnosis_total_seconds) / latest(diagnosis_samples) / 60 WHERE ${local.dashboard_nrql} AND window_kind = 'day' AND diagnosis_samples > 0 FACET business_date SINCE 3 minutes ago" },
@@ -26,14 +29,14 @@ locals {
     platform = [
       { title = "Kubernetes capacity", query = "FROM K8sContainerSample SELECT average(cpuUsedCores), average(memoryWorkingSetBytes) WHERE ${local.dashboard_nrql} FACET clusterName SINCE 5 minutes ago" },
       { title = "Telemetry heartbeat", query = "FROM WorkshopTelemetryHeartbeat SELECT latest(drop_count) WHERE ${local.dashboard_nrql} SINCE 3 minutes ago" },
-      { title = "API p95 latency seconds", query = "FROM Transaction SELECT percentile(duration, 95) WHERE ${local.dashboard_nrql} SINCE 5 minutes ago" },
+      { title = "API p95 latency seconds", query = "FROM Transaction SELECT percentile(duration, 95) WHERE ${local.transaction_scope} SINCE 5 minutes ago" },
       { title = "Correlated request logs", query = "FROM Log SELECT count(*) WHERE ${local.dashboard_nrql} AND correlation_id IS NOT NULL AND api_gateway_request_id IS NOT NULL AND traceparent IS NOT NULL AND event_name IS NOT NULL AND service IS NOT NULL AND version IS NOT NULL FACET service, event_name SINCE 5 minutes ago" }
     ]
   }
   alert_conditions = {
     order_technical_failures = { query = "FROM Log SELECT count(*) WHERE ${local.alert_nrql} AND event_name = 'order_technical_failure'", threshold = 0, duration = 60, expiration = null }
-    api_error_ratio          = { query = "FROM Transaction SELECT percentage(count(*), WHERE httpResponseCode >= 500) WHERE ${local.alert_nrql}", threshold = 5, duration = 300, expiration = null }
-    api_latency              = { query = "FROM Transaction SELECT percentile(duration, 95) WHERE ${local.alert_nrql}", threshold = 2, duration = 300, expiration = null }
+    api_error_ratio          = { query = "FROM Transaction SELECT percentage(count(*), WHERE httpResponseCode >= 500) WHERE ${local.transaction_scope}", threshold = 5, duration = 300, expiration = null }
+    api_latency              = { query = "FROM Transaction SELECT percentile(duration, 95) WHERE ${local.transaction_scope}", threshold = 2, duration = 300, expiration = null }
     # SyntheticCheck does not inherit the collector's environment attribute.
     # Bind the exact environment monitor name instead of an absent attribute.
     gateway_health_failure   = { query = "FROM SyntheticCheck SELECT filter(count(*), WHERE result = 'FAILED') WHERE monitorName = 'Oficina ${var.environment} gateway health'", threshold = 0, duration = 60, expiration = null }

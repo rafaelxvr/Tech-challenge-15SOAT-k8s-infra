@@ -110,7 +110,7 @@ run "required_observability_categories_are_represented" {
   }
   assert {
     condition = (alltrue([for widget in flatten(values(local.dashboard_widgets)) :
-      strcontains(widget.query, "environment = {{environment}}") &&
+      (strcontains(widget.query, "environment = {{environment}}") || strcontains(widget.query, "appName = 'oficina-api-staging'")) &&
       !can(regex("(?i)select[[:space:]]+\\*|password|authorization|access_token|license.?key|api.?key", widget.query))
       ]) && !strcontains(jsonencode(local.dashboard_widgets), nonsensitive(var.newrelic_api_key)) &&
     !strcontains(helm_release.nri_bundle.values[0], nonsensitive(var.newrelic_api_key)))
