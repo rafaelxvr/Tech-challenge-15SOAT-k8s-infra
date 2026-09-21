@@ -3,8 +3,11 @@ locals {
   values_template       = file("${path.module}/../../observability/newrelic-values.yaml")
   bundle_values         = replace(replace(replace(local.values_template, "$${cluster_name}", var.cluster_name), "$${environment}", var.environment), "$${ingest_secret_name}", var.ingest_secret_name)
   secret_sync_manifest  = templatefile("${path.module}/../../observability/newrelic-secret-sync.yaml", { ingest_secret_name = var.ingest_secret_name, ingest_secret_arn = var.ingest_secret_arn, secret_sync_irsa_role_arn = var.secret_sync_irsa_role_arn })
-  dashboard_nrql        = "environment = '{{environment}}'"
-  alert_nrql            = "environment = '${var.environment}'"
+  # The dashboard variable below uses replacement_strategy "string", which wraps the
+  # selected value in quotes on substitution. Quoting it again here renders
+  # environment = ''staging'', which is invalid NRQL and leaves every widget empty.
+  dashboard_nrql = "environment = {{environment}}"
+  alert_nrql     = "environment = '${var.environment}'"
   dashboard_widgets = {
     business = [
       { title = "Daily diagnosis mean", query = "FROM WorkshopReportSnapshot SELECT latest(diagnosis_total_seconds) / latest(diagnosis_samples) / 60 WHERE ${local.dashboard_nrql} AND window_kind = 'day' AND diagnosis_samples > 0 FACET business_date SINCE 3 minutes ago" },

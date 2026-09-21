@@ -36,6 +36,12 @@ run "monitoring_is_pinned_bounded_and_has_four_dashboards" {
     condition     = alltrue([for name, alert in newrelic_nrql_alert_condition.threshold : (name == "gateway_health_failure" ? strcontains(alert.nrql[0].query, "monitorName = 'Oficina staging gateway health'") : strcontains(alert.nrql[0].query, "environment = 'staging'")) && !strcontains(alert.nrql[0].query, "{{environment}}")]) && strcontains(newrelic_one_dashboard.approved["platform"].page[0].widget_line[0].nrql_query[0].query, "{{environment}}")
     error_message = "Applied alert NRQL must bind the concrete Terraform environment or its exact synthetic monitor; dashboards retain their finite interactive environment filter."
   }
+  assert {
+    condition = alltrue([for dashboard in newrelic_one_dashboard.approved :
+      alltrue([for widget in dashboard.page[0].widget_line :
+    !strcontains(widget.nrql_query[0].query, "'{{environment}}'")])])
+    error_message = "The environment variable substitutes with replacement_strategy \"string\", which adds its own quotes. Quoting it in the query renders environment = ''staging'' and empties every widget."
+  }
 }
 run "required_observability_categories_are_represented" {
   command = plan
@@ -104,7 +110,7 @@ run "required_observability_categories_are_represented" {
   }
   assert {
     condition = (alltrue([for widget in flatten(values(local.dashboard_widgets)) :
-      strcontains(widget.query, "environment = '{{environment}}'") &&
+      strcontains(widget.query, "environment = {{environment}}") &&
       !can(regex("(?i)select[[:space:]]+\\*|password|authorization|access_token|license.?key|api.?key", widget.query))
       ]) && !strcontains(jsonencode(local.dashboard_widgets), nonsensitive(var.newrelic_api_key)) &&
     !strcontains(helm_release.nri_bundle.values[0], nonsensitive(var.newrelic_api_key)))
