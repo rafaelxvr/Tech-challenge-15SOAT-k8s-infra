@@ -51,6 +51,7 @@ The handoff can be rendered for review without cluster or AWS access:
 ```powershell
 ./scripts/render-runtime-public-configmap.ps1 -Environment staging `
   -CustomerPublicKeysFile .\reviewed\customer-public-keys.yaml `
+  -CustomerKeyId 'customer-YYYY-MM' `
   -StaffKeyId 'staff-YYYY-MM' `
   -NotificationQueueUrl 'https://sqs.us-east-1.amazonaws.com/ACCOUNT/oficina-phase3-staging-notifications.fifo' `
   -HistoryZone 'UTC' -RdsCaFile .\reviewed\us-east-1-bundle.pem `
@@ -76,7 +77,7 @@ renderer change. Existing published artifacts remain immutable. The platform
 renderer likewise quotes numeric New Relic account IDs explicitly so Kubernetes
 receives a string-valued environment variable.
 
-Install new customer public keys before activating the corresponding signer kid and retain old keys for the reviewed overlap. The CSI provider projects only `STAFF_HMAC_SECRET` from the existing approved authorizer-trust bundle into the separate `oficina-staff-jwt` Kubernetes Secret. Customer private signing material is never referenced. This reuses the approved secret inventory; it creates no AWS secret. The APP runtime credential secret retains its existing `username`/`password` JSON contract; never supply the master or migration credential ARN.
+Install new customer public keys before activating the corresponding signer kid and retain old keys for the reviewed overlap. `-CustomerKeyId` must be the same value as the FUN `customer_key_id` Terraform variable: APP resolves the customer public key by the `kid` in the token header, so the renderer refuses to emit a ConfigMap whose published kids do not include the active signer kid. A mismatch is not detectable at rollout time — the gateway authorizer keeps accepting the token while APP rejects every customer request with 401. The CSI provider projects only `STAFF_HMAC_SECRET` from the existing approved authorizer-trust bundle into the separate `oficina-staff-jwt` Kubernetes Secret. Customer private signing material is never referenced. This reuses the approved secret inventory; it creates no AWS secret. The APP runtime credential secret retains its existing `username`/`password` JSON contract; never supply the master or migration credential ARN.
 
 The reviewed APP IRSA role must trust the exact environment namespace/service account and already permit reads of only the three referenced runtime secrets plus `sqs:SendMessage` to its environment queue. This source change does not expand Terraform IAM permissions: supplying that role is a deployment prerequisite. Public configuration contains no credentials. The database URL uses the approved `oficina` database with `verify-full` and an explicit mounted CA path.
 
